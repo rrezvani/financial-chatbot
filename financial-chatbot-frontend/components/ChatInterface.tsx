@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { FileUploadIcon } from './Icons';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -13,7 +12,6 @@ export default function ChatInterface() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -50,40 +48,13 @@ export default function ChatInterface() {
       setMessages(prev => [...prev, assistantMessage]);
     } catch (error) {
       console.error('Error:', error);
+      const errorMessage: Message = {
+        role: 'assistant',
+        content: 'Sorry, I encountered an error. Please try again.',
+      };
+      setMessages(prev => [...prev, errorMessage]);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const fileType = file.name.split('.').pop()?.toLowerCase();
-    if (!['csv', 'pdf', 'ppt', 'pptx'].includes(fileType || '')) {
-      alert('Please upload CSV, PDF, or PPT files only');
-      return;
-    }
-
-    setUploading(true);
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('type', fileType || '');
-
-    try {
-      const response = await fetch('http://localhost:8000/api/upload/', {
-        method: 'POST',
-        body: formData,
-      });
-      
-      if (!response.ok) throw new Error('Upload failed');
-      
-      const data = await response.json();
-      alert('File uploaded successfully!');
-    } catch (error) {
-      alert('Error uploading file. Please try again.');
-    } finally {
-      setUploading(false);
     }
   };
 
@@ -93,7 +64,7 @@ export default function ChatInterface() {
       <div className="flex-1 overflow-y-auto">
         {messages.length === 0 ? (
           <div className="text-center text-gray-300 mt-8">
-            Ask me anything about the financial data
+            Ask me anything about tax information
           </div>
         ) : (
           messages.map((message, index) => (
@@ -125,39 +96,23 @@ export default function ChatInterface() {
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Send a message..."
+              placeholder="Ask a question about taxes..."
               className="w-full p-4 pr-24 rounded-lg bg-[#40414f] text-white placeholder-gray-400 focus:outline-none"
               disabled={loading}
             />
-            <div className="absolute right-2 top-1/2 -translate-y-1/2 flex space-x-2">
-              <label className="cursor-pointer p-2 text-gray-400 hover:text-white">
-                <input
-                  type="file"
-                  className="hidden"
-                  accept=".csv,.pdf,.ppt,.pptx"
-                  onChange={handleFileUpload}
-                  disabled={uploading || loading}
-                />
-                {uploading ? (
-                  <div className="h-5 w-5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
-                ) : (
-                  <FileUploadIcon className="h-5 w-5" />
-                )}
-              </label>
-              <button
-                type="submit"
-                disabled={loading || !input.trim()}
-                className="p-2 text-gray-400 hover:text-white disabled:opacity-50"
-              >
-                {loading ? (
-                  <div className="h-5 w-5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
-                ) : (
-                  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" />
-                  </svg>
-                )}
-              </button>
-            </div>
+            <button
+              type="submit"
+              disabled={loading || !input.trim()}
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-gray-400 hover:text-white disabled:opacity-50"
+            >
+              {loading ? (
+                <div className="h-5 w-5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+                </svg>
+              )}
+            </button>
           </div>
         </form>
       </div>
