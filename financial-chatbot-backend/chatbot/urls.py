@@ -4,4 +4,5 @@ from . import views
 urlpatterns = [
     path('test/', views.test_endpoint),
     path('chat/', views.chat_endpoint),
+    path('upload/', views.upload_dataset),
 ] 
