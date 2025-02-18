@@ -1,26 +1,19 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import { FileUploadIcon } from './Icons';
 
 interface Message {
   role: 'user' | 'assistant';
   content: string;
-  results?: Array<{
-    content: string;
-    source: string;
-    metadata: Record<string, any>;
-  }>;
 }
 
-interface ChatInterfaceProps {
-  isDataLoaded: boolean;
-}
-
-export default function ChatInterface({ isDataLoaded }: ChatInterfaceProps) {
+export default function ChatInterface() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -28,7 +21,7 @@ export default function ChatInterface({ isDataLoaded }: ChatInterfaceProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim() || !isDataLoaded) return;
+    if (!input.trim()) return;
 
     const userMessage: Message = {
       role: 'user',
@@ -52,7 +45,6 @@ export default function ChatInterface({ isDataLoaded }: ChatInterfaceProps) {
       const assistantMessage: Message = {
         role: 'assistant',
         content: data.response,
-        results: data.results,
       };
 
       setMessages(prev => [...prev, assistantMessage]);
@@ -63,71 +55,112 @@ export default function ChatInterface({ isDataLoaded }: ChatInterfaceProps) {
     }
   };
 
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const fileType = file.name.split('.').pop()?.toLowerCase();
+    if (!['csv', 'pdf', 'ppt', 'pptx'].includes(fileType || '')) {
+      alert('Please upload CSV, PDF, or PPT files only');
+      return;
+    }
+
+    setUploading(true);
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('type', fileType || '');
+
+    try {
+      const response = await fetch('http://localhost:8000/api/upload/', {
+        method: 'POST',
+        body: formData,
+      });
+      
+      if (!response.ok) throw new Error('Upload failed');
+      
+      const data = await response.json();
+      alert('File uploaded successfully!');
+    } catch (error) {
+      alert('Error uploading file. Please try again.');
+    } finally {
+      setUploading(false);
+    }
+  };
+
   return (
-    <div className="bg-white rounded-lg shadow h-[600px] flex flex-col">
+    <div className="flex flex-col h-[calc(100vh-4rem)]">
       {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {!isDataLoaded && (
-          <div className="text-center text-gray-500 mt-4">
-            Please upload some financial documents to start the conversation
+      <div className="flex-1 overflow-y-auto">
+        {messages.length === 0 ? (
+          <div className="text-center text-gray-300 mt-8">
+            Ask me anything about the financial data
           </div>
-        )}
-        
-        {messages.map((message, index) => (
-          <div
-            key={index}
-            className={`flex ${
-              message.role === 'user' ? 'justify-end' : 'justify-start'
-            }`}
-          >
+        ) : (
+          messages.map((message, index) => (
             <div
-              className={`max-w-[80%] p-3 rounded-lg ${
-                message.role === 'user'
-                  ? 'bg-blue-500 text-white'
-                  : 'bg-gray-100'
+              key={index}
+              className={`py-8 ${
+                message.role === 'assistant' ? 'bg-[#444654]' : ''
               }`}
             >
-              <p>{message.content}</p>
-              {message.results && (
-                <div className="mt-2 space-y-2">
-                  {message.results.map((result, idx) => (
-                    <div key={idx} className="p-2 bg-white/90 rounded text-gray-800">
-                      <p className="text-sm">{result.content}</p>
-                      <p className="text-xs text-gray-500">
-                        Source: {result.source}
-                      </p>
-                    </div>
-                  ))}
+              <div className="max-w-3xl mx-auto px-4">
+                <div className="flex space-x-4">
+                  <div className="w-8 h-8 rounded-sm bg-slate-600 flex-shrink-0" />
+                  <div className="flex-1 text-gray-100">
+                    {message.content}
+                  </div>
                 </div>
-              )}
+              </div>
             </div>
-          </div>
-        ))}
+          ))
+        )}
         <div ref={messagesEndRef} />
       </div>
 
       {/* Input Area */}
-      <form onSubmit={handleSubmit} className="p-4 border-t">
-        <div className="flex space-x-2">
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder={isDataLoaded 
-              ? "Ask about your financial data..."
-              : "Upload documents to start chatting"}
-            className="flex-1 p-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            disabled={!isDataLoaded || loading}
-          />
-          <button
-            type="submit"
-            disabled={!isDataLoaded || loading}
-            className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
-          >
-            {loading ? 'Sending...' : 'Send'}
-          </button>
-        </div>
-      </form>
+      <div className="border-t border-gray-600 p-4">
+        <form onSubmit={handleSubmit} className="max-w-3xl mx-auto">
+          <div className="relative">
+            <input
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="Send a message..."
+              className="w-full p-4 pr-24 rounded-lg bg-[#40414f] text-white placeholder-gray-400 focus:outline-none"
+              disabled={loading}
+            />
+            <div className="absolute right-2 top-1/2 -translate-y-1/2 flex space-x-2">
+              <label className="cursor-pointer p-2 text-gray-400 hover:text-white">
+                <input
+                  type="file"
+                  className="hidden"
+                  accept=".csv,.pdf,.ppt,.pptx"
+                  onChange={handleFileUpload}
+                  disabled={uploading || loading}
+                />
+                {uploading ? (
+                  <div className="h-5 w-5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <FileUploadIcon className="h-5 w-5" />
+                )}
+              </label>
+              <button
+                type="submit"
+                disabled={loading || !input.trim()}
+                className="p-2 text-gray-400 hover:text-white disabled:opacity-50"
+              >
+                {loading ? (
+                  <div className="h-5 w-5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+                  </svg>
+                )}
+              </button>
+            </div>
+          </div>
+        </form>
+      </div>
     </div>
   );
 } 
