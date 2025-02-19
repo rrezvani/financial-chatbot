@@ -5,6 +5,12 @@ import React, { useState, useEffect, useRef } from 'react';
 interface Message {
   role: 'user' | 'assistant';
   content: string;
+  enhancedResults?: Array<{
+    type: string;
+    income_range: string;
+    rate: string;
+    conditions: string;
+  }>;
 }
 
 export default function ChatInterface() {
@@ -43,7 +49,8 @@ export default function ChatInterface() {
       if (data.message) {
         const botMessage: Message = {
           role: 'assistant' as const,
-          content: data.message
+          content: data.message,
+          enhancedResults: data.enhanced_results
         };
         setMessages(prev => [...prev, botMessage]);
       }
@@ -69,7 +76,25 @@ export default function ChatInterface() {
                 ? 'bg-blue-600 text-white' 
                 : 'bg-gray-700 text-white'
             }`}>
-              <pre className="whitespace-pre-wrap font-sans">{message.content}</pre>
+              <div className="whitespace-pre-wrap font-sans">{message.content}</div>
+              
+              {message.enhancedResults && message.enhancedResults.length > 0 && (
+                <div className="mt-4 space-y-3">
+                  {message.enhancedResults.map((result, idx) => (
+                    <div key={idx} className="border-t border-gray-600 pt-3">
+                      <div className="font-semibold text-blue-300">
+                        Income Range: {result.income_range}
+                      </div>
+                      <div className="text-green-300">
+                        Tax Rate: {result.rate}
+                      </div>
+                      <div className="text-sm text-gray-300">
+                        {result.conditions}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         ))}
