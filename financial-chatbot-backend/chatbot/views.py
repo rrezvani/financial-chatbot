@@ -54,23 +54,22 @@ def upload_dataset(request):
 
 @api_view(['POST'])
 def chat_endpoint(request):
-    """Enhanced chat endpoint with semantic search"""
-    user_message = request.data.get('message', '')
-    
-    if not processor.documents:
-        return Response({
-            'response': 'Please upload some datasets first.',
-            'status': 'error'
-        })
+    """Handle chat messages and return relevant tax information"""
+    message = request.data.get('message')
+    if not message:
+        return Response({'error': 'No message provided'}, status=400)
+
+    try:
+        # Use the search method we implemented in DataProcessor
+        results = processor.search(message)
         
-    # Perform semantic search
-    search_results = processor.search(user_message)
-    
-    # Format response with relevant information
-    response = {
-        'response': f"Based on the available data, here are the relevant results:",
-        'results': search_results,
-        'status': 'success'
-    }
-    
-    return Response(response) 
+        # Format the response
+        response = {
+            'direct_matches': results['direct_matches'],
+            'enhanced_results': results['enhanced_results']
+        }
+        
+        return Response(response)
+        
+    except Exception as e:
+        return Response({'error': str(e)}, status=500) 

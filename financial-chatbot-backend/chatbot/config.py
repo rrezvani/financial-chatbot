@@ -7,7 +7,7 @@ DATA_PATH = "/Users/romtinrezvani/Downloads"
 TAX_DOCUMENTS = {
     'tax_code': os.path.join(DATA_PATH, "usc26@118-78.pdf"),
     'tax_instructions': os.path.join(DATA_PATH, "i1040gi.pdf"),
-    'tax_presentation': os.path.join(DATA_PATH, "MIC_3e_Ch11.ppt"),
+    'tax_presentation': os.path.join(DATA_PATH, "MIC_3e_Ch11.pptx"),
     'tax_data': os.path.join(DATA_PATH, "tax_data.csv")
 }
 
