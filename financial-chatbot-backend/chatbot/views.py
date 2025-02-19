@@ -57,7 +57,7 @@ def upload_dataset(request):
 @api_view(['POST'])
 def chat_endpoint(request):
     """Handle chat messages and return relevant tax information"""
-    print(f"Received chat request: {request.data}")  # Debug log
+    print(f"Received chat request: {request.data}")
     
     message = request.data.get('message')
     if not message:
@@ -67,41 +67,31 @@ def chat_endpoint(request):
         # Use the search method we implemented in DataProcessor
         results = processor.search(message)
         
-        # Format the response in a more readable way
-        response_text = ""
+        # Debug logging
+        print("Search results:", results)
+        if results.get('enhanced_results'):
+            print("Enhanced results:", results['enhanced_results'])
+            for result in results['enhanced_results']:
+                print(f"Rate type: {type(result['rate'])}, Value: {result['rate']}")
         
-        # Add direct matches if any
-        if results['direct_matches']:
-            response_text += results['direct_matches'][0] + "\n\n"
-            
-        # Add tax rate information if any
-        if results['enhanced_results']:
-            response_text += "Applicable tax rates:\n"
-            for rate_info in results['enhanced_results'][:3]:  # Limit to top 3 matches
-                response_text += f"• Income Range: ${rate_info['income_range']}\n"
-                response_text += f"  Tax Rate: {float(rate_info['rate'])*100:.2f}%\n"
-                response_text += f"  {rate_info['conditions']}\n\n"
-                
-        if not response_text:
-            response_text = "I couldn't find specific information for that query. Please try rephrasing your question."
-            
         # Store the query and results
         query = SearchQuery.objects.create(
             query=message,
-            response=response_text,
+            response=str(results),
             direct_matches=len(results.get('direct_matches', [])),
             enhanced_matches=len(results.get('enhanced_results', []))
         )
         
         response = {
-            'message': response_text,
+            'message': results.get('direct_matches', ['No relevant information found'])[0] if results.get('direct_matches') else 'No relevant information found',
+            'enhanced_results': results.get('enhanced_results', []),
             'status': 'success'
         }
-        print(f"Sending response: {response}")  # Debug log
+        print(f"Sending response: {response}")
         return Response(response)
         
     except Exception as e:
-        print(f"Error in chat endpoint: {str(e)}")  # Debug log
+        print(f"Error in chat endpoint: {str(e)}")
         return Response({
             'message': 'Sorry, I encountered an error. Please try again.',
             'error': str(e),

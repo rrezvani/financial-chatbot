@@ -12,6 +12,7 @@ import pptx
 import os
 from . import config
 import re
+from datetime import datetime
 
 class DataProcessor:
     def __init__(self):
@@ -31,6 +32,15 @@ class DataProcessor:
         self.tax_rates = {}
         self.tax_rules = {}
         self.tax_examples = {}
+        
+        # Define relationship types
+        self.relationship_types = {
+            'TAX_RATE': 'has_tax_rate',
+            'DEDUCTION': 'has_deduction',
+            'APPLIES_TO': 'applies_to',
+            'RELATED_TO': 'related_to',
+            'VALID_IN': 'valid_in'
+        }
         
         # Process our tax documents
         self.load_tax_documents()
@@ -81,6 +91,10 @@ class DataProcessor:
             
             print("Building search index...")
             self.build_search_index()
+            
+            # Add this line to build the knowledge graph
+            print("Building knowledge graph...")
+            self.build_knowledge_graph()
         except Exception as e:
             print(f"Error loading tax documents: {str(e)}")
             print(f"Error type: {type(e)}")
@@ -90,26 +104,39 @@ class DataProcessor:
     def process_tax_rates(self, df):
         """Process tax rates from CSV"""
         try:
-            # Print the columns to debug
             print("Available columns:", df.columns.tolist())
             
+            # Sort by income to ensure proper bracketing
+            df = df.sort_values('Income')
+            
             for _, row in df.iterrows():
-                # Use the actual column names from your CSV
-                bracket_id = f"bracket_{row['Income']}"
-                
-                self.tax_rates[bracket_id] = {
-                    'range': str(row['Income']),
-                    'rate': str(row['Tax Rate']),
-                    'deductions': str(row['Deductions']),
-                    'conditions': f"Type: {row['Taxpayer Type']}, Year: {row['Tax Year']}, State: {row['State']}"
-                }
-                
-                # Add to graph
-                self.graph.add_node(bracket_id, 
-                                  type='tax_rate',
-                                  data=self.tax_rates[bracket_id])
+                try:
+                    # Clean and convert income
+                    income = float(str(row['Income']).replace('$', '').replace(',', ''))
+                    
+                    # Clean and convert tax rate (handle both decimal and percentage formats)
+                    tax_rate_str = str(row['Tax Rate']).strip()
+                    if '%' in tax_rate_str:
+                        tax_rate = float(tax_rate_str.replace('%', '')) / 100
+                    else:
+                        tax_rate = float(tax_rate_str)
+                    
+                    bracket_id = f"bracket_{income}"
+                    
+                    self.tax_rates[bracket_id] = {
+                        'range': f"${income:,.2f}",
+                        'rate': tax_rate,  # Store as float directly, not string
+                        'deductions': str(row['Deductions']),
+                        'conditions': f"Type: {row['Taxpayer Type']}, Year: {row['Tax Year']}, State: {row['State']}"
+                    }
+                except ValueError as e:
+                    print(f"Warning: Error processing row {_}: {e}")
+                    continue
+
         except Exception as e:
             print(f"Error processing tax rates: {str(e)}")
+            import traceback
+            print(f"Full traceback: {traceback.format_exc()}")
 
     def process_tax_guidelines(self, pdf_reader, source):
         """Process tax guidelines from PDF"""
@@ -256,40 +283,82 @@ class DataProcessor:
             import traceback
             print(f"Full traceback: {traceback.format_exc()}")
 
-    def search(self, query):
-        """Search for relevant tax information"""
+    def vector_search(self, query: str) -> list:
+        """Perform vector-based search"""
+        query_vector = self.model.encode([query])
+        D, I = self.vector_store.search(query_vector.astype('float32'), k=config.TOP_K_RESULTS)
+        
+        matches = []
+        for i, score in zip(I[0], D[0]):
+            if i < len(self.documents):
+                matches.append({
+                    'text': self.documents[i],
+                    'score': float(score)
+                })
+        return matches
+
+    def search(self, query: str):
+        """Combined vector and graph-based search"""
         try:
-            # Get query embedding
-            query_vector = self.model.encode([query])
-            
-            # Semantic search
-            D, I = self.vector_store.search(query_vector.astype('float32'), k=config.TOP_K_RESULTS)
-            
-            # Get relevant documents and format them better
-            direct_matches = []
-            for i in I[0]:
-                if i < len(self.documents):
-                    content = self.documents[i]
-                    # Clean up the content
-                    content = content.replace('\n', ' ').strip()
-                    if len(content) > 50:  # Only include substantial content
-                        direct_matches.append(content)
-            
-            # Look for specific tax information in CSV data
-            enhanced_results = []
-            for bracket_id, tax_info in self.tax_rates.items():
-                if self.is_related(query, tax_info):
-                    enhanced_results.append({
-                        'type': 'tax_rate',
-                        'income_range': tax_info['range'],
-                        'rate': tax_info['rate'],
-                        'conditions': tax_info['conditions']
-                    })
-            
-            return {
-                'direct_matches': direct_matches,
-                'enhanced_results': enhanced_results
-            }
+            # Extract income from query
+            income_match = re.search(r'\$?([\d,]+(?:\.\d{2})?)', query)
+            if income_match:
+                query_income = float(income_match.group(1).replace(',', ''))
+                print(f"\nSearching for tax rates near ${query_income:,.2f}")
+                
+                # Find closest tax brackets
+                matching_brackets = []
+                for bracket_id, tax_info in self.tax_rates.items():
+                    try:
+                        bracket_income = float(tax_info['range'].replace('$', '').replace(',', ''))
+                        rate = tax_info['rate']
+                        
+                        if abs(query_income - bracket_income) / bracket_income < 0.05:
+                            matching_brackets.append({
+                                'range': tax_info['range'],
+                                'rate': rate,
+                                'conditions': tax_info['conditions']
+                            })
+                    except ValueError as e:
+                        continue
+                
+                if matching_brackets:
+                    # Sort by closest match
+                    matching_brackets.sort(key=lambda x: abs(query_income - float(x['range'].replace('$', '').replace(',', ''))))
+                    
+                    response = {
+                        'direct_matches': ["Based on the income provided, here are the applicable tax rates:"],
+                        'enhanced_results': []
+                    }
+                    
+                    # Add top 3 closest matches
+                    for bracket in matching_brackets[:3]:
+                        response['enhanced_results'].append({
+                            'type': 'tax_rate',
+                            'income_range': bracket['range'],
+                            'rate': f"{float(bracket['rate'])*100:.2f}%",
+                            'conditions': bracket['conditions']
+                        })
+                    
+                    print(f"Found {len(matching_brackets)} matching tax brackets")
+                    return response
+                
+                print("No exact matches found, falling back to vector search")
+                # If no exact matches found, fall back to vector search
+                vector_matches = self.vector_search(query)
+                response = {
+                    'direct_matches': [],
+                    'enhanced_results': []
+                }
+                
+                # Add vector-based matches
+                for match in vector_matches[:2]:
+                    content = match['text'].replace('\n', ' ').strip()
+                    if len(content) > 50:
+                        response['direct_matches'].append(content)
+                
+                return response
+
         except Exception as e:
             print(f"Error in search: {str(e)}")
             return {
@@ -324,22 +393,21 @@ class DataProcessor:
 
     def is_related(self, text: str, tax_info: dict) -> bool:
         """Determine if a text chunk is related to tax information"""
-        # Extract income value from query if it exists
-        income_match = re.search(r'(\$?[\d,]+)', text)
-        if income_match:
-            query_income = float(income_match.group(1).replace('$', '').replace(',', ''))
-            tax_income = float(tax_info['range'].replace('$', '').replace(',', ''))
+        try:
+            # Extract income value from query
+            income_match = re.search(r'\$?([\d,]+(?:\.\d{2})?)', text)
+            if income_match:
+                query_income = float(income_match.group(1).replace(',', ''))
+                tax_income = float(tax_info['range'].replace('$', '').replace(',', ''))
+                
+                # More precise matching: within 5% of the bracket
+                return abs(query_income - tax_income) / tax_income < 0.05
+                
+            return False  # If no income mentioned, don't consider it related
             
-            # Return true if the income is within 10% of the tax bracket
-            return abs(query_income - tax_income) / tax_income < 0.1
-        
-        # If no specific income mentioned, use semantic similarity
-        tax_text = f"Tax bracket {tax_info['range']} with rate {tax_info['rate']}"
-        if tax_info.get('conditions'):
-            tax_text += f" under conditions {tax_info['conditions']}"
-        
-        similarity = self.calculate_similarity(text, tax_text)
-        return similarity > config.SIMILARITY_THRESHOLD
+        except (ValueError, TypeError) as e:
+            print(f"Warning: Error in is_related: {e}")
+            return False
 
     def calculate_similarity(self, text1: str, text2: str) -> float:
         """Calculate cosine similarity between two texts"""
@@ -348,3 +416,141 @@ class DataProcessor:
             np.linalg.norm(embeddings[0]) * np.linalg.norm(embeddings[1])
         )
         return similarity 
+
+    def build_knowledge_graph(self):
+        """Build knowledge graph from processed data"""
+        # Add nodes and edges from tax rates
+        for bracket_id, tax_info in self.tax_rates.items():
+            try:
+                # Create unique identifiers
+                rate_id = f"rate_{bracket_id}"
+                income_id = f"income_{bracket_id}"
+                state = tax_info['conditions'].split(', ')[-1].split(': ')[1]
+                year = tax_info['conditions'].split(', ')[1].split(': ')[1]
+                tax_type = tax_info['conditions'].split(', ')[0].split(': ')[1]
+
+                state_id = f"state_{state}"
+                year_id = f"year_{year}"
+                type_id = f"type_{tax_type}"
+
+                # Add nodes with attributes
+                self.graph.add_node(rate_id, 
+                                  type='tax_rate', 
+                                  rate=float(tax_info['rate']),  # tax_info['rate'] is already a float
+                                  range=float(tax_info['range'].replace('$', '').replace(',', '')))
+                
+                self.graph.add_node(income_id, type='income_bracket')
+                self.graph.add_node(state_id, type='state')
+                self.graph.add_node(year_id, type='year')
+                self.graph.add_node(type_id, type='taxpayer_type')
+
+                # Add relationships
+                self.graph.add_edge(rate_id, income_id, relationship=self.relationship_types['APPLIES_TO'])
+                self.graph.add_edge(rate_id, state_id, relationship=self.relationship_types['VALID_IN'])
+                self.graph.add_edge(rate_id, year_id, relationship=self.relationship_types['VALID_IN'])
+                self.graph.add_edge(rate_id, type_id, relationship=self.relationship_types['APPLIES_TO'])
+            except Exception as e:
+                print(f"Warning: Error processing bracket {bracket_id}: {e}")
+                continue
+
+        # Add relationships from text chunks
+        for i, doc in enumerate(self.documents):
+            chunk_id = f"chunk_{i}"
+            self.graph.add_node(chunk_id, 
+                              type='text_chunk',
+                              text=doc)  # Fix: doc is the text directly
+
+            # Connect to related tax rates
+            for node in self.graph.nodes():
+                node_data = self.graph.nodes[node]
+                if node_data.get('type') == 'tax_rate':
+                    if self._are_related(doc, node_data):  # Fix: pass doc text directly
+                        self.graph.add_edge(chunk_id, node, 
+                                          relationship=self.relationship_types['RELATED_TO'])
+
+    def _are_related(self, text: str, node_data: dict) -> bool:
+        """Check if text chunk is related to a node"""
+        if node_data.get('type') == 'tax_rate':
+            try:
+                # Safely get rate and range with defaults
+                rate = node_data.get('rate', 0)
+                range_val = node_data.get('range', 0)
+                
+                # Only proceed if we have both values
+                if rate and range_val:
+                    rate_str = f"{float(rate)*100:.1f}%"
+                    income_str = f"${float(range_val):,.2f}"
+                    return rate_str in text or income_str in text
+            except (ValueError, TypeError) as e:
+                print(f"Warning: Error processing node data: {e}")
+                return False
+        return False
+
+    def find_related_info(self, query: str, max_results: int = 3) -> list:
+        """Find related information using both vector and graph-based approaches"""
+        # Get initial matches using vector search
+        vector_matches = self.vector_search(query)
+        
+        # Extract relevant nodes from vector matches
+        relevant_nodes = set()
+        for match in vector_matches:
+            # Find connected nodes in graph
+            for node in self.graph.nodes():
+                if match['text'] in str(self.graph.nodes[node].get('text', '')):
+                    relevant_nodes.add(node)
+                    # Add neighbors up to 2 hops away
+                    relevant_nodes.update(nx.single_source_shortest_path_length(self.graph, node, cutoff=2).keys())
+
+        # Score and rank results
+        results = []
+        for node in relevant_nodes:
+            node_data = self.graph.nodes[node]
+            if node_data.get('type') == 'tax_rate':
+                score = self._calculate_relevance_score(query, node, node_data)
+                results.append({
+                    'type': 'tax_rate',
+                    'rate': f"{node_data['rate']*100:.2f}%",
+                    'income_range': f"${node_data['range']:,.2f}",
+                    'conditions': self._get_node_conditions(node),
+                    'score': score
+                })
+
+        # Sort by relevance score and return top results
+        results.sort(key=lambda x: x['score'], reverse=True)
+        return results[:max_results]
+
+    def _calculate_relevance_score(self, query: str, node_id: str, node_data: dict) -> float:
+        """Calculate relevance score based on multiple factors"""
+        score = 0.0
+        
+        # Base score from vector similarity
+        if node_data.get('text'):
+            score += self.calculate_similarity(query, node_data['text'])
+        
+        # Graph-based factors
+        # More connections = more relevant
+        score += len(list(self.graph.neighbors(node_id))) * 0.1
+        
+        # Prefer more recent information
+        if 'year' in str(node_id):
+            try:
+                year = int(str(node_id).split('_')[1])
+                current_year = datetime.now().year
+                score += 1.0 / (current_year - year + 1)
+            except:
+                pass
+        
+        return score
+
+    def _get_node_conditions(self, node_id: str) -> str:
+        """Get conditions associated with a node from its relationships"""
+        conditions = []
+        for neighbor in self.graph.neighbors(node_id):
+            neighbor_data = self.graph.nodes[neighbor]
+            edge_data = self.graph.edges[node_id, neighbor]
+            
+            if neighbor_data.get('type') in ['state', 'year', 'taxpayer_type']:
+                value = neighbor.split('_')[1]
+                conditions.append(f"{neighbor_data['type'].title()}: {value}")
+                
+        return ', '.join(conditions) 
