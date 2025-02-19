@@ -11,6 +11,7 @@ import PyPDF2
 import pptx
 import os
 from . import config
+import re
 
 class DataProcessor:
     def __init__(self):
@@ -257,35 +258,44 @@ class DataProcessor:
 
     def search(self, query):
         """Search for relevant tax information"""
-        # Get query embedding
-        query_vector = self.model.encode([query])
-        
-        # Semantic search
-        D, I = self.vector_store.search(query_vector.astype('float32'), k=config.TOP_K_RESULTS)
-        
-        # Get relevant documents
-        results = [self.documents[i] for i in I[0]]
-        
-        # Enhance with graph relationships
-        enhanced_results = []
-        for doc_id in I[0]:
-            if doc_id in self.graph:
-                neighbors = list(self.graph.neighbors(doc_id))
-                related_info = []
-                for neighbor in neighbors:
-                    node_data = self.graph.nodes[neighbor].get('data', {})
-                    if node_data:
-                        related_info.append(node_data)
-                
-                enhanced_results.append({
-                    'main_content': self.documents[doc_id],
-                    'related_info': related_info
-                })
-        
-        return {
-            'direct_matches': results,
-            'enhanced_results': enhanced_results
-        }
+        try:
+            # Get query embedding
+            query_vector = self.model.encode([query])
+            
+            # Semantic search
+            D, I = self.vector_store.search(query_vector.astype('float32'), k=config.TOP_K_RESULTS)
+            
+            # Get relevant documents and format them better
+            direct_matches = []
+            for i in I[0]:
+                if i < len(self.documents):
+                    content = self.documents[i]
+                    # Clean up the content
+                    content = content.replace('\n', ' ').strip()
+                    if len(content) > 50:  # Only include substantial content
+                        direct_matches.append(content)
+            
+            # Look for specific tax information in CSV data
+            enhanced_results = []
+            for bracket_id, tax_info in self.tax_rates.items():
+                if self.is_related(query, tax_info):
+                    enhanced_results.append({
+                        'type': 'tax_rate',
+                        'income_range': tax_info['range'],
+                        'rate': tax_info['rate'],
+                        'conditions': tax_info['conditions']
+                    })
+            
+            return {
+                'direct_matches': direct_matches,
+                'enhanced_results': enhanced_results
+            }
+        except Exception as e:
+            print(f"Error in search: {str(e)}")
+            return {
+                'direct_matches': ['Sorry, I encountered an error while searching.'],
+                'enhanced_results': []
+            }
 
     def extract_text_from_pdf(self, pdf_path):
         """Extract text from PDF and split into chunks"""
@@ -314,14 +324,20 @@ class DataProcessor:
 
     def is_related(self, text: str, tax_info: dict) -> bool:
         """Determine if a text chunk is related to tax information"""
-        # Convert tax_info to text for comparison
+        # Extract income value from query if it exists
+        income_match = re.search(r'(\$?[\d,]+)', text)
+        if income_match:
+            query_income = float(income_match.group(1).replace('$', '').replace(',', ''))
+            tax_income = float(tax_info['range'].replace('$', '').replace(',', ''))
+            
+            # Return true if the income is within 10% of the tax bracket
+            return abs(query_income - tax_income) / tax_income < 0.1
+        
+        # If no specific income mentioned, use semantic similarity
         tax_text = f"Tax bracket {tax_info['range']} with rate {tax_info['rate']}"
-        if tax_info['deductions']:
-            tax_text += f" and deductions {tax_info['deductions']}"
-        if tax_info['conditions']:
+        if tax_info.get('conditions'):
             tax_text += f" under conditions {tax_info['conditions']}"
         
-        # Calculate similarity
         similarity = self.calculate_similarity(text, tax_text)
         return similarity > config.SIMILARITY_THRESHOLD
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -21,11 +21,9 @@ export default function ChatInterface() {
     e.preventDefault();
     if (!input.trim()) return;
 
-    const userMessage: Message = {
-      role: 'user',
-      content: input,
-    };
+    console.log('Submitting message:', input);
 
+    const userMessage: Message = { role: 'user' as const, content: input };
     setMessages(prev => [...prev, userMessage]);
     setInput('');
     setLoading(true);
@@ -40,82 +38,69 @@ export default function ChatInterface() {
       });
 
       const data = await response.json();
-      const assistantMessage: Message = {
-        role: 'assistant',
-        content: data.response,
-      };
+      console.log('Received response:', data);
 
-      setMessages(prev => [...prev, assistantMessage]);
+      if (data.message) {
+        const botMessage: Message = {
+          role: 'assistant' as const,
+          content: data.message
+        };
+        setMessages(prev => [...prev, botMessage]);
+      }
     } catch (error) {
       console.error('Error:', error);
-      const errorMessage: Message = {
-        role: 'assistant',
-        content: 'Sorry, I encountered an error. Please try again.',
-      };
-      setMessages(prev => [...prev, errorMessage]);
+      setMessages(prev => [...prev, {
+        role: 'assistant' as const,
+        content: 'Sorry, I encountered an error. Please try again.'
+      }]);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-4rem)]">
-      {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto">
-        {messages.length === 0 ? (
-          <div className="text-center text-gray-300 mt-8">
-            Ask me anything about tax information
-          </div>
-        ) : (
-          messages.map((message, index) => (
-            <div
-              key={index}
-              className={`py-8 ${
-                message.role === 'assistant' ? 'bg-[#444654]' : ''
-              }`}
-            >
-              <div className="max-w-3xl mx-auto px-4">
-                <div className="flex space-x-4">
-                  <div className="w-8 h-8 rounded-sm bg-slate-600 flex-shrink-0" />
-                  <div className="flex-1 text-gray-100">
-                    {message.content}
-                  </div>
-                </div>
-              </div>
+    <div className="flex flex-col h-screen bg-gray-900 text-white">
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {messages.map((message, index) => (
+          <div key={index} 
+               className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div className={`max-w-[80%] p-4 rounded-lg ${
+              message.role === 'user' 
+                ? 'bg-blue-600 text-white' 
+                : 'bg-gray-700 text-white'
+            }`}>
+              <pre className="whitespace-pre-wrap font-sans">{message.content}</pre>
             </div>
-          ))
+          </div>
+        ))}
+        {loading && (
+          <div className="flex justify-start">
+            <div className="bg-gray-700 text-white p-4 rounded-lg animate-pulse">
+              Thinking...
+            </div>
+          </div>
         )}
         <div ref={messagesEndRef} />
       </div>
-
-      {/* Input Area */}
-      <div className="border-t border-gray-600 p-4">
-        <form onSubmit={handleSubmit} className="max-w-3xl mx-auto">
-          <div className="relative">
-            <input
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Ask a question about taxes..."
-              className="w-full p-4 pr-24 rounded-lg bg-[#40414f] text-white placeholder-gray-400 focus:outline-none"
-              disabled={loading}
-            />
-            <button
-              type="submit"
-              disabled={loading || !input.trim()}
-              className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-gray-400 hover:text-white disabled:opacity-50"
-            >
-              {loading ? (
-                <div className="h-5 w-5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
-              ) : (
-                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" />
-                </svg>
-              )}
-            </button>
-          </div>
-        </form>
-      </div>
+      
+      <form onSubmit={handleSubmit} className="p-4 border-t border-gray-700">
+        <div className="flex space-x-4">
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Ask a question about taxes..."
+            className="flex-1 p-3 rounded bg-gray-800 text-white border border-gray-700 focus:outline-none focus:border-blue-500"
+          />
+          <button 
+            type="submit"
+            disabled={loading}
+            className="px-6 py-3 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 transition-colors"
+          >
+            {loading ? 'Sending...' : 'Send'}
+          </button>
+        </div>
+      </form>
     </div>
   );
 } 
