@@ -2,6 +2,8 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser
 from .data_processor import DataProcessor
+from .models import TaxDocument, SearchQuery
+from . import config  # Import config directly
 import os
 
 # Initialize the data processor
@@ -63,13 +65,18 @@ def chat_endpoint(request):
         # Use the search method we implemented in DataProcessor
         results = processor.search(message)
         
-        # Format the response
-        response = {
-            'direct_matches': results['direct_matches'],
-            'enhanced_results': results['enhanced_results']
-        }
+        # Store the query and results
+        query = SearchQuery.objects.create(
+            query=message,
+            response=str(results),
+            direct_matches=len(results.get('direct_matches', [])),
+            enhanced_matches=len(results.get('enhanced_results', []))
+        )
         
-        return Response(response)
+        return Response(results)
         
     except Exception as e:
-        return Response({'error': str(e)}, status=500) 
+        return Response({'error': str(e)}, status=500)
+
+# Remove the document initialization code from the bottom of views.py
+# We'll add it to a management command later 

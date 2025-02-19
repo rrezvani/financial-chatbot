@@ -44,14 +44,24 @@ class DataProcessor:
                 print("CSV loaded successfully, processing tax rates...")
                 self.process_tax_rates(tax_rates)
             
-            # Load PDF data
+            # Load main tax code PDF
             try:
-                print(f"Attempting to load PDF from: {config.TAX_DOCUMENTS['tax_code']}")
+                print(f"Attempting to load main tax code from: {config.TAX_DOCUMENTS['tax_code']}")
                 with open(config.TAX_DOCUMENTS['tax_code'], 'rb') as pdf_file:
                     pdf_reader = PyPDF2.PdfReader(pdf_file)
-                    self.process_tax_guidelines(pdf_reader)
+                    self.process_tax_guidelines(pdf_reader, "tax_code")
             except FileNotFoundError as e:
                 print(f"Warning: Tax code PDF not found at {config.TAX_DOCUMENTS['tax_code']}")
+                print(f"Error details: {str(e)}")
+            
+            # Load tax instructions PDF
+            try:
+                print(f"Attempting to load tax instructions from: {config.TAX_DOCUMENTS['tax_instructions']}")
+                with open(config.TAX_DOCUMENTS['tax_instructions'], 'rb') as pdf_file:
+                    pdf_reader = PyPDF2.PdfReader(pdf_file)
+                    self.process_tax_guidelines(pdf_reader, "instructions")
+            except FileNotFoundError as e:
+                print(f"Warning: Tax instructions PDF not found at {config.TAX_DOCUMENTS['tax_instructions']}")
                 print(f"Error details: {str(e)}")
             
             # Load PPT data
@@ -100,15 +110,14 @@ class DataProcessor:
         except Exception as e:
             print(f"Error processing tax rates: {str(e)}")
 
-    def process_tax_guidelines(self, pdf_reader):
+    def process_tax_guidelines(self, pdf_reader, source):
         """Process tax guidelines from PDF"""
         # Extract text directly from the PdfReader object
         chunks = []
-        current_chunk = ""
         
         # Get total number of pages
         total_pages = len(pdf_reader.pages)
-        print(f"PDF has {total_pages} pages. Processing first 20 pages...") # Reduced from 100
+        print(f"PDF ({source}) has {total_pages} pages. Processing first 20 pages...")
         
         # Only process first 20 pages - most tax guidelines have important info up front
         for page_num in range(min(20, total_pages)):
@@ -143,10 +152,10 @@ class DataProcessor:
 
         # Only process chunks that are highly relevant
         for i, chunk in enumerate(chunks):
-            rule_id = f"rule_{i}"
+            rule_id = f"rule_{source}_{i}"  # Add source to ID
             self.tax_rules[rule_id] = {
                 'text': chunk,
-                'source': 'guidelines'
+                'source': source  # Use the provided source
             }
             self.documents.append(chunk)
             
