@@ -1,0 +1,43 @@
+# Python backend
+**/__pycache__/
+*/__pycache__/
+financial-chatbot-backend/*.py[cod]
+financial-chatbot-backend/*$py.class
+financial-chatbot-backend/venv/
+financial-chatbot-backend/.env
+*.pyc
+**/*.pyc
+
+# Node.js frontend
+financial-chatbot-frontend/node_modules/
+financial-chatbot-frontend/.next/
+financial-chatbot-frontend/out/
+financial-chatbot-frontend/build/
+financial-chatbot-frontend/.env*.local
+financial-chatbot-frontend/.next/**/*
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+*.pem
+
+# Debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# Testing
+coverage/
+.coverage
+coverage.xml
+
+# Temporary files
+temp/ 
