@@ -2,15 +2,27 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 
+interface TaxDetails {
+  income_source: string;
+  deduction_type: string;
+  deductions: string;
+  taxable_income: string;
+  tax_owed: string;
+  transaction_date: string;
+}
+
+interface EnhancedResult {
+  type: string;
+  income_range: string;
+  rate: string;
+  conditions: string;
+  details?: TaxDetails;
+}
+
 interface Message {
   role: 'user' | 'assistant';
   content: string;
-  enhancedResults?: Array<{
-    type: string;
-    income_range: string;
-    rate: string;
-    conditions: string;
-  }>;
+  enhancedResults?: EnhancedResult[];
 }
 
 export default function ChatInterface() {
@@ -91,6 +103,25 @@ export default function ChatInterface() {
                       <div className="text-sm text-gray-300">
                         {result.conditions}
                       </div>
+                      
+                      {result.details && (
+                        <div className="mt-2 text-sm space-y-1 bg-gray-800 p-2 rounded">
+                          <div className="text-blue-200">
+                            Income Source: {result.details.income_source}
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>Deductions: {result.details.deductions}</div>
+                            <div>Type: {result.details.deduction_type}</div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>Taxable Income: {result.details.taxable_income}</div>
+                            <div>Tax Owed: {result.details.tax_owed}</div>
+                          </div>
+                          <div className="text-gray-400">
+                            Transaction Date: {result.details.transaction_date}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

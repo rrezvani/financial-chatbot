@@ -42,6 +42,18 @@ class DataProcessor:
             'VALID_IN': 'valid_in'
         }
         
+        # Add entity types mapping
+        self.entity_types = {
+            'non-profit': 'Non-Profit',
+            'nonprofit': 'Non-Profit',
+            'corporation': 'Corporation',
+            'corporate': 'Corporation',
+            'individual': 'Individual',
+            'person': 'Individual',
+            'trust': 'Trust',
+            'partnership': 'Partnership'
+        }
+        
         # Process our tax documents
         self.load_tax_documents()
 
@@ -111,24 +123,33 @@ class DataProcessor:
             
             for _, row in df.iterrows():
                 try:
-                    # Clean and convert income
+                    # Clean and convert numeric values
                     income = float(str(row['Income']).replace('$', '').replace(',', ''))
+                    deductions = float(str(row['Deductions']).replace('$', '').replace(',', ''))
+                    taxable_income = float(str(row['Taxable Income']).replace('$', '').replace(',', ''))
+                    tax_owed = float(str(row['Tax Owed']).replace('$', '').replace(',', ''))
                     
-                    # Clean and convert tax rate (handle both decimal and percentage formats)
-                    tax_rate_str = str(row['Tax Rate']).strip()
-                    if '%' in tax_rate_str:
-                        tax_rate = float(tax_rate_str.replace('%', '')) / 100
-                    else:
-                        tax_rate = float(tax_rate_str)
+                    # Fix tax rate conversion - store as actual percentage value
+                    tax_rate_str = str(row['Tax Rate']).strip().rstrip('%')
+                    tax_rate = float(tax_rate_str) * 100  # Convert decimal to percentage
                     
                     bracket_id = f"bracket_{income}"
                     
                     self.tax_rates[bracket_id] = {
                         'range': f"${income:,.2f}",
-                        'rate': tax_rate,  # Store as float directly, not string
-                        'deductions': str(row['Deductions']),
+                        'rate': tax_rate,  # Now storing as actual percentage (e.g., 24.55)
+                        'taxpayer_type': str(row['Taxpayer Type']),
+                        'tax_year': str(row['Tax Year']),
+                        'transaction_date': pd.to_datetime(row['Transaction Date']).strftime('%Y-%m-%d'),
+                        'income_source': str(row['Income Source']),
+                        'deduction_type': str(row['Deduction Type']),
+                        'state': str(row['State']),
+                        'deductions': f"${deductions:,.2f}",
+                        'taxable_income': f"${taxable_income:,.2f}",
+                        'tax_owed': f"${tax_owed:,.2f}",
                         'conditions': f"Type: {row['Taxpayer Type']}, Year: {row['Tax Year']}, State: {row['State']}"
                     }
+                    
                 except ValueError as e:
                     print(f"Warning: Error processing row {_}: {e}")
                     continue
@@ -291,8 +312,14 @@ class DataProcessor:
         matches = []
         for i, score in zip(I[0], D[0]):
             if i < len(self.documents):
+                text = self.documents[i]
+                # Format any percentage matches in the text
+                percentage_matches = re.findall(r'(\d+\.?\d*)%', text)
+                for match in percentage_matches:
+                    text = text.replace(f"{match}%", f"{float(match):.2f}%")
+                
                 matches.append({
-                    'text': self.documents[i],
+                    'text': text,
                     'score': float(score)
                 })
         return matches
@@ -300,64 +327,70 @@ class DataProcessor:
     def search(self, query: str):
         """Combined vector and graph-based search"""
         try:
-            # Extract income from query
-            income_match = re.search(r'\$?([\d,]+(?:\.\d{2})?)', query)
+            query = query.strip('- ').strip()
+            query_lower = query.lower()
+            
+            # Handle income source queries
+            if 'income' in query_lower and any(source.lower() in query_lower for source in 
+                ['business income', 'capital gains', 'rental', 'salary', 'royalties', 'investment']):
+                return self.calculate_average_by_source(query)
+            
+            # Handle deduction type queries
+            if any(deduction.lower() in query_lower for deduction in 
+                ['education expenses', 'medical expenses', 'mortgage interest', 'business expenses', 'charitable contributions']):
+                return self.calculate_average_by_deduction(query)
+            
+            # Handle average queries before income check
+            if 'average' in query_lower or 'mean' in query_lower:
+                return self.calculate_average(query)
+            
+            # Handle income-based queries
+            income_match = re.search(r'-?\$?([\d,]+(?:\.\d{2})?)', query)
             if income_match:
-                query_income = float(income_match.group(1).replace(',', ''))
-                print(f"\nSearching for tax rates near ${query_income:,.2f}")
-                
-                # Find closest tax brackets
-                matching_brackets = []
-                for bracket_id, tax_info in self.tax_rates.items():
-                    try:
-                        bracket_income = float(tax_info['range'].replace('$', '').replace(',', ''))
-                        rate = tax_info['rate']
-                        
-                        if abs(query_income - bracket_income) / bracket_income < 0.05:
-                            matching_brackets.append({
-                                'range': tax_info['range'],
-                                'rate': rate,
-                                'conditions': tax_info['conditions']
-                            })
-                    except ValueError as e:
-                        continue
-                
-                if matching_brackets:
-                    # Sort by closest match
-                    matching_brackets.sort(key=lambda x: abs(query_income - float(x['range'].replace('$', '').replace(',', ''))))
-                    
-                    response = {
-                        'direct_matches': ["Based on the income provided, here are the applicable tax rates:"],
+                # Check for negative sign in original query
+                if '-' in query:
+                    return {
+                        'direct_matches': ['Invalid query: Please provide a positive income amount.'],
                         'enhanced_results': []
                     }
-                    
-                    # Add top 3 closest matches
-                    for bracket in matching_brackets[:3]:
-                        response['enhanced_results'].append({
-                            'type': 'tax_rate',
-                            'income_range': bracket['range'],
-                            'rate': f"{float(bracket['rate'])*100:.2f}%",
-                            'conditions': bracket['conditions']
-                        })
-                    
-                    print(f"Found {len(matching_brackets)} matching tax brackets")
-                    return response
                 
-                print("No exact matches found, falling back to vector search")
-                # If no exact matches found, fall back to vector search
-                vector_matches = self.vector_search(query)
-                response = {
-                    'direct_matches': [],
+                query_income = float(income_match.group(1).replace(',', ''))
+                if query_income > 999999999:
+                    return {
+                        'direct_matches': ['Invalid query: Please provide an income amount less than $1,000,000,000.'],
+                        'enhanced_results': []
+                    }
+                return self.get_income_based_rates(query_income)
+
+            # Edge case validation
+            if any(term in query_lower for term in ['billion', 'trillion', 'million']):
+                return {
+                    'direct_matches': ['Invalid query: Please provide a valid income amount between $0 and $999,999,999.'],
                     'enhanced_results': []
                 }
+
+            # Handle comparison queries
+            if 'compare' in query_lower or 'difference between' in query_lower:
+                # State comparison
+                if 'state' in query_lower or any(f" {state.lower()} " in f" {query_lower} " 
+                    for state in ['TX', 'CA', 'NY', 'FL', 'PA', 'IL', 'OH', 'GA', 'NC', 'MI']):
+                    states = re.findall(r'\b([A-Z]{2})\b', query.upper())
+                    if len(states) == 2:
+                        return self.compare_states(states[0], states[1], query)
                 
-                # Add vector-based matches
-                for match in vector_matches[:2]:
-                    content = match['text'].replace('\n', ' ').strip()
-                    if len(content) > 50:
-                        response['direct_matches'].append(content)
-                
-                return response
+                # Organization type comparison
+                if any(org in query_lower for org in ['corporation', 'non-profit', 'trust', 'individual', 'partnership']):
+                    return self.compare_organizations(query)
+
+            # Remove highest state tax rate handling and use default response
+            if 'highest' in query_lower and 'state' in query_lower:
+                return {
+                    'direct_matches': ['I apologize, but I cannot determine the highest state tax rate at this time.'],
+                    'enhanced_results': []
+                }
+
+            # Default to vector search
+            return self.handle_general_query(query)
 
         except Exception as e:
             print(f"Error in search: {str(e)}")
@@ -365,6 +398,205 @@ class DataProcessor:
                 'direct_matches': ['Sorry, I encountered an error while searching.'],
                 'enhanced_results': []
             }
+
+    def compare_organizations(self, query: str) -> dict:
+        """Compare tax rates between different organization types"""
+        org_types = {
+            'corporation': ['corporation', 'corporate'],
+            'non-profit': ['non-profit', 'nonprofit'],
+            'individual': ['individual', 'person', 'personal'],
+            'trust': ['trust'],
+            'partnership': ['partnership']
+        }
+        
+        found_types = []
+        for org_type, keywords in org_types.items():
+            if any(keyword in query.lower() for keyword in keywords):
+                found_types.append(org_type)
+        
+        if len(found_types) < 2:
+            return {
+                'direct_matches': ['Please specify two organization types to compare.'],
+                'enhanced_results': []
+            }
+        
+        results = {}
+        for org_type in found_types:
+            rates = []
+            for tax_info in self.tax_rates.values():
+                if org_type.title() in tax_info['conditions']:
+                    rates.append(tax_info['rate'])
+            
+            if rates:
+                avg_rate = sum(rates) / len(rates)
+                results[org_type] = {
+                    'average_rate': avg_rate,
+                    'sample_size': len(rates)
+                }
+        
+        if not results:
+            return {
+                'direct_matches': ['No comparable data found for the specified organization types.'],
+                'enhanced_results': []
+            }
+        
+        response = ['Comparison of average tax rates:']
+        for org_type, data in results.items():
+            response.append(
+                f"{org_type.title()}: {self.format_rate(data['average_rate'])} "
+                f"(based on {data['sample_size']} records)"
+            )
+        
+        return {
+            'direct_matches': response,
+            'enhanced_results': []
+        }
+
+    def calculate_average(self, query: str) -> dict:
+        """Calculate average tax rates based on query criteria"""
+        query_lower = query.lower()
+        
+        # Extract organization type
+        org_type = None
+        for key, value in self.entity_types.items():
+            if key in query_lower:
+                org_type = value
+                break
+        
+        # Extract year
+        year = None
+        year_match = re.search(r'\b(19|20)\d{2}\b', query)
+        if year_match:
+            year = year_match.group(0)
+        
+        matching_rates = []
+        for tax_info in self.tax_rates.values():
+            matches_criteria = True
+            
+            # Check organization type
+            if org_type and org_type not in tax_info['taxpayer_type']:
+                matches_criteria = False
+            
+            # Check year
+            if year and str(year) not in tax_info['tax_year']:
+                matches_criteria = False
+            
+            if matches_criteria:
+                matching_rates.append(tax_info['rate'])
+        
+        if not matching_rates:
+            return {
+                'direct_matches': [f'No tax rates found for {org_type or "organizations"} in {year or "any year"}.'],
+                'enhanced_results': []
+            }
+        
+        avg_rate = sum(matching_rates) / len(matching_rates)
+        criteria = []
+        if org_type:
+            criteria.append(org_type)
+        if year:
+            criteria.append(f"in {year}")
+        
+        criteria_str = ' '.join(criteria) if criteria else 'all records'
+        
+        return {
+            'direct_matches': [
+                f"The average tax rate for {criteria_str} is {self.format_rate(avg_rate)}",
+                f"This is based on {len(matching_rates)} records"
+            ],
+            'enhanced_results': []
+        }
+
+    def calculate_average_by_source(self, query: str) -> dict:
+        """Calculate average tax rate for a specific income source"""
+        query_lower = query.lower()
+        
+        # Map common variations to standardized names
+        source_mapping = {
+            'business': 'Business Income',
+            'capital': 'Capital Gains',
+            'rental': 'Rental',
+            'salary': 'Salary',
+            'royalties': 'Royalties',
+            'investment': 'Investment'
+        }
+        
+        income_source = None
+        for key, value in source_mapping.items():
+            if key in query_lower:
+                income_source = value
+                break
+        
+        if not income_source:
+            return {
+                'direct_matches': ['Please specify a valid income source.'],
+                'enhanced_results': []
+            }
+        
+        matching_rates = []
+        for tax_info in self.tax_rates.values():
+            if tax_info['income_source'] == income_source:
+                matching_rates.append(tax_info['rate'])
+        
+        if not matching_rates:
+            return {
+                'direct_matches': [f'No tax rates found for {income_source}.'],
+                'enhanced_results': []
+            }
+        
+        avg_rate = sum(matching_rates) / len(matching_rates)
+        return {
+            'direct_matches': [
+                f"The average tax rate for {income_source} is {self.format_rate(avg_rate)}",
+                f"This is based on {len(matching_rates)} records"
+            ],
+            'enhanced_results': []
+        }
+
+    def calculate_average_by_deduction(self, query: str) -> dict:
+        """Calculate average tax rate for a specific deduction type"""
+        query_lower = query.lower()
+        
+        # Map common variations to standardized names
+        deduction_mapping = {
+            'education': 'Education Expenses',
+            'medical': 'Medical Expenses',
+            'mortgage': 'Mortgage Interest',
+            'business expense': 'Business Expenses',
+            'charitable': 'Charitable Contributions'
+        }
+        
+        deduction_type = None
+        for key, value in deduction_mapping.items():
+            if key in query_lower:
+                deduction_type = value
+                break
+        
+        if not deduction_type:
+            return {
+                'direct_matches': ['Please specify a valid deduction type.'],
+                'enhanced_results': []
+            }
+        
+        matching_rates = []
+        for tax_info in self.tax_rates.values():
+            if tax_info['deduction_type'] == deduction_type:
+                matching_rates.append(tax_info['rate'])
+        
+        if not matching_rates:
+            return {
+                'direct_matches': [f'No tax rates found for {deduction_type}.'],
+                'enhanced_results': []
+            }
+        
+        avg_rate = sum(matching_rates) / len(matching_rates)
+        return {
+            'direct_matches': [
+                f"The average tax rate for those with {deduction_type} is {self.format_rate(avg_rate)}",
+                f"This is based on {len(matching_rates)} records"
+            ],
+            'enhanced_results': []
+        }
 
     def extract_text_from_pdf(self, pdf_path):
         """Extract text from PDF and split into chunks"""
@@ -391,22 +623,18 @@ class DataProcessor:
                 
         return chunks
 
-    def is_related(self, text: str, tax_info: dict) -> bool:
-        """Determine if a text chunk is related to tax information"""
+    def format_rate(self, rate: float) -> str:
+        """Format tax rate as percentage string"""
+        return f"{rate:.2f}%"  # rate is already a percentage value
+
+    def is_related(self, query_income: float, tax_info: dict) -> bool:
+        """Check if a tax bracket is related to the query income"""
         try:
-            # Extract income value from query
-            income_match = re.search(r'\$?([\d,]+(?:\.\d{2})?)', text)
-            if income_match:
-                query_income = float(income_match.group(1).replace(',', ''))
-                tax_income = float(tax_info['range'].replace('$', '').replace(',', ''))
-                
-                # More precise matching: within 5% of the bracket
-                return abs(query_income - tax_income) / tax_income < 0.05
-                
-            return False  # If no income mentioned, don't consider it related
-            
-        except (ValueError, TypeError) as e:
-            print(f"Warning: Error in is_related: {e}")
+            bracket_income = float(tax_info['range'].replace('$', '').replace(',', ''))
+            # Look for brackets within 5% above OR below the query income
+            percentage_diff = abs(query_income - bracket_income) / query_income
+            return percentage_diff < 0.05
+        except (ValueError, TypeError):
             return False
 
     def calculate_similarity(self, text1: str, text2: str) -> float:
@@ -415,7 +643,7 @@ class DataProcessor:
         similarity = np.dot(embeddings[0], embeddings[1]) / (
             np.linalg.norm(embeddings[0]) * np.linalg.norm(embeddings[1])
         )
-        return similarity 
+        return similarity
 
     def build_knowledge_graph(self):
         """Build knowledge graph from processed data"""
@@ -554,3 +782,139 @@ class DataProcessor:
                 conditions.append(f"{neighbor_data['type'].title()}: {value}")
                 
         return ', '.join(conditions) 
+
+    def compare_states(self, state1: str, state2: str, query: str) -> dict:
+        """Compare tax rates between two states"""
+        try:
+            # Extract income if present
+            income_match = re.search(r'\$?([\d,]+(?:\.\d{2})?)', query)
+            income = float(income_match.group(1).replace(',', '')) if income_match else None
+            
+            state1_rates = []
+            state2_rates = []
+            
+            for tax_info in self.tax_rates.values():
+                bracket_income = float(tax_info['range'].replace('$', '').replace(',', ''))
+                
+                # If income specified, only compare nearby brackets
+                if income and abs(income - bracket_income) / income > 0.05:
+                    continue
+                    
+                if state1 in tax_info['conditions']:
+                    state1_rates.append({
+                        'rate': tax_info['rate'],
+                        'income': bracket_income,
+                        'type': tax_info['taxpayer_type']
+                    })
+                elif state2 in tax_info['conditions']:
+                    state2_rates.append({
+                        'rate': tax_info['rate'],
+                        'income': bracket_income,
+                        'type': tax_info['taxpayer_type']
+                    })
+            
+            if not state1_rates or not state2_rates:
+                return {
+                    'direct_matches': [f'No comparable tax rates found for {state1} and {state2}.'],
+                    'enhanced_results': []
+                }
+            
+            # Calculate averages
+            avg1 = sum(r['rate'] for r in state1_rates) / len(state1_rates)
+            avg2 = sum(r['rate'] for r in state2_rates) / len(state2_rates)
+            
+            return {
+                'direct_matches': [
+                    f"Comparing tax rates between {state1} and {state2}:",
+                    f"{state1} average rate: {self.format_rate(avg1)}",
+                    f"{state2} average rate: {self.format_rate(avg2)}",
+                    f"Based on {len(state1_rates)} records for {state1} and {len(state2_rates)} records for {state2}"
+                ],
+                'enhanced_results': []
+            }
+        except Exception as e:
+            print(f"Error in state comparison: {str(e)}")
+            return {
+                'direct_matches': ['Error comparing states. Please try a different query.'],
+                'enhanced_results': []
+            } 
+
+    def get_income_based_rates(self, query_income: float, query: str = '') -> dict:
+        """Get tax rates for a specific income level with optional filters"""
+        query_lower = query.lower()
+        
+        # Extract state if present
+        state = None
+        state_match = re.findall(r'\b([A-Z]{2})\b', query.upper())
+        if state_match:
+            state = state_match[0]
+        
+        # Extract organization type if present
+        org_type = None
+        for key, value in self.entity_types.items():
+            if key in query_lower:
+                org_type = value
+                break
+        
+        matching_brackets = []
+        for tax_info in self.tax_rates.values():
+            # Check income range
+            if not self.is_related(query_income, tax_info):
+                continue
+            
+            # Check state if specified
+            if state and state not in tax_info['state']:
+                continue
+            
+            # Check organization type if specified
+            if org_type and org_type not in tax_info['taxpayer_type']:
+                continue
+            
+            matching_brackets.append({
+                'type': 'tax_rate',
+                'income_range': tax_info['range'],
+                'rate': self.format_rate(tax_info['rate']),
+                'conditions': tax_info['conditions'],
+                'details': {
+                    'income_source': tax_info['income_source'],
+                    'deduction_type': tax_info['deduction_type'],
+                    'deductions': tax_info['deductions'],
+                    'taxable_income': tax_info['taxable_income'],
+                    'tax_owed': tax_info['tax_owed'],
+                    'transaction_date': tax_info['transaction_date']
+                }
+            })
+        
+        # Sort by how close the income is to the query income
+        matching_brackets.sort(key=lambda x: abs(float(x['income_range'].replace('$', '').replace(',', '')) - query_income))
+        
+        if matching_brackets:
+            return {
+                'direct_matches': ['Based on the income provided, here are the applicable tax rates:'],
+                'enhanced_results': matching_brackets[:3]
+            }
+        else:
+            return {
+                'direct_matches': ['No tax rates found matching all specified criteria.'],
+                'enhanced_results': []
+            }
+
+    def handle_general_query(self, query: str) -> dict:
+        """Handle queries that don't match specific patterns"""
+        vector_matches = self.vector_search(query)
+        if not vector_matches:
+            return {
+                'direct_matches': ['I could not find specific information to answer your question.'],
+                'enhanced_results': []
+            }
+        
+        response = []
+        for match in vector_matches[:2]:  # Take top 2 matches
+            content = match['text'].replace('\n', ' ').strip()
+            if len(content) > 50:  # Only include substantial matches
+                response.append(content)
+        
+        return {
+            'direct_matches': response if response else ['No relevant information found.'],
+            'enhanced_results': []
+        } 

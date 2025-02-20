@@ -67,13 +67,13 @@ def chat_endpoint(request):
         # Use the search method we implemented in DataProcessor
         results = processor.search(message)
         
-        # Debug logging
-        print("Search results:", results)
-        if results.get('enhanced_results'):
-            print("Enhanced results:", results['enhanced_results'])
-            for result in results['enhanced_results']:
-                print(f"Rate type: {type(result['rate'])}, Value: {result['rate']}")
-        
+        if not results:
+            return Response({
+                'message': 'I could not find specific information to answer your question.',
+                'enhanced_results': [],
+                'status': 'success'
+            })
+
         # Store the query and results
         query = SearchQuery.objects.create(
             query=message,
@@ -82,11 +82,13 @@ def chat_endpoint(request):
             enhanced_matches=len(results.get('enhanced_results', []))
         )
         
+        # Format the response
         response = {
-            'message': results.get('direct_matches', ['No relevant information found'])[0] if results.get('direct_matches') else 'No relevant information found',
+            'message': '\n'.join(results.get('direct_matches', [])) if results.get('direct_matches') else 'No relevant information found',
             'enhanced_results': results.get('enhanced_results', []),
             'status': 'success'
         }
+        
         print(f"Sending response: {response}")
         return Response(response)
         
