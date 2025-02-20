@@ -5,6 +5,7 @@ from .data_processor import DataProcessor
 from .models import TaxDocument, SearchQuery
 from . import config  # Import config directly
 import os
+from .serializers import SearchQuerySerializer, ChatResponseSerializer
 
 # Initialize the data processor
 processor = DataProcessor()
@@ -61,44 +62,58 @@ def chat_endpoint(request):
     
     message = request.data.get('message')
     if not message:
-        return Response({'error': 'No message provided'}, status=400)
+        return Response({
+            'message': 'No message provided',
+            'enhanced_results': [],
+            'status': 'error'
+        }, status=400)
 
     try:
         # Use the search method we implemented in DataProcessor
         results = processor.search(message)
         
         if not results:
-            return Response({
+            response_data = {
                 'message': 'I could not find specific information to answer your question.',
                 'enhanced_results': [],
                 'status': 'success'
-            })
+            }
+            serializer = ChatResponseSerializer(data=response_data)
+            serializer.is_valid(raise_exception=True)
+            return Response(serializer.data)
 
         # Store the query and results
-        query = SearchQuery.objects.create(
-            query=message,
-            response=str(results),
-            direct_matches=len(results.get('direct_matches', [])),
-            enhanced_matches=len(results.get('enhanced_results', []))
-        )
+        query_data = {
+            'query': message,
+            'response': str(results)
+        }
+        query_serializer = SearchQuerySerializer(data=query_data)
+        query_serializer.is_valid(raise_exception=True)
+        query_serializer.save()
         
         # Format the response
-        response = {
+        response_data = {
             'message': '\n'.join(results.get('direct_matches', [])) if results.get('direct_matches') else 'No relevant information found',
             'enhanced_results': results.get('enhanced_results', []),
             'status': 'success'
         }
         
-        print(f"Sending response: {response}")
-        return Response(response)
+        response_serializer = ChatResponseSerializer(data=response_data)
+        response_serializer.is_valid(raise_exception=True)
+        
+        print(f"Sending response: {response_serializer.data}")
+        return Response(response_serializer.data)
         
     except Exception as e:
         print(f"Error in chat endpoint: {str(e)}")
-        return Response({
+        error_response = {
             'message': 'Sorry, I encountered an error. Please try again.',
-            'error': str(e),
+            'enhanced_results': [],
             'status': 'error'
-        }, status=500)
+        }
+        serializer = ChatResponseSerializer(data=error_response)
+        serializer.is_valid(raise_exception=True)
+        return Response(serializer.data, status=500)
 
 # Remove the document initialization code from the bottom of views.py
 # We'll add it to a management command later 

@@ -20,10 +20,8 @@ class TaxDocument(models.Model):
 
 class SearchQuery(models.Model):
     query = models.TextField()
-    timestamp = models.DateTimeField(default=timezone.now)
     response = models.TextField()
-    direct_matches = models.IntegerField(default=0)
-    enhanced_matches = models.IntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
     
     def __str__(self):
-        return f"Query: {self.query[:50]}..." 
+        return self.query 
