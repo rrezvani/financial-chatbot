@@ -1,20 +1,24 @@
 # Python backend
 **/__pycache__/
 */__pycache__/
-financial-chatbot-backend/*.py[cod]
-financial-chatbot-backend/*$py.class
-financial-chatbot-backend/venv/
-financial-chatbot-backend/.env
+*.py[cod]
+*$py.class
+**/venv/bin/
+**/venv/lib/
+**/venv/include/
+**/venv/pyvenv.cfg
+**/venv/share/
+.env
 *.pyc
 **/*.pyc
 
 # Node.js frontend
-financial-chatbot-frontend/node_modules/
-financial-chatbot-frontend/.next/
-financial-chatbot-frontend/out/
-financial-chatbot-frontend/build/
-financial-chatbot-frontend/.env*.local
-financial-chatbot-frontend/.next/**/*
+node_modules/
+.next/
+out/
+build/
+.env*.local
+.next/**/*
 
 # IDE
 .vscode/
