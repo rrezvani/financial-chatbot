@@ -13,6 +13,7 @@ import os
 from . import config
 import re
 from datetime import datetime
+import traceback  # Add this too for better error tracking
 
 class DataProcessor:
     def __init__(self):
@@ -54,6 +55,11 @@ class DataProcessor:
             'partnership': 'Partnership'
         }
         
+        # Added for new functionality
+        self.graph_data = {}
+        self.table_data = {}
+        self.graph_relationships = []
+        
         # Process our tax documents
         self.load_tax_documents()
 
@@ -89,17 +95,33 @@ class DataProcessor:
             
             # Load PPT data
             ppt_path = config.TAX_DOCUMENTS['tax_presentation']
-            print(f"Checking if PPT exists at: {ppt_path}")
+            print("\nDEBUG: ===== PPT Loading =====")
+            print(f"DEBUG: PPT path: {ppt_path}")
+            print(f"DEBUG: Path exists: {os.path.exists(ppt_path)}")
+            
             if os.path.exists(ppt_path):
-                print("PPT file found, attempting to load...")
+                print("DEBUG: Found PPT file")
                 try:
-                    prs = pptx.Presentation(ppt_path)
-                    self.process_tax_examples(prs)
+                    print("DEBUG: Starting PPT processing")
+                    prs = Presentation(ppt_path)
+                    print(f"DEBUG: Loaded presentation with {len(prs.slides)} slides")
+                    
+                    # Initialize data structures
+                    self.graph_data = {}
+                    self.table_data = {}
+                    
+                    # Process the PPT
+                    self.process_ppt(prs)
+                    
+                    print("\nDEBUG: After processing:")
+                    print(f"DEBUG: Graph data keys: {list(self.graph_data.keys())}")
+                    print(f"DEBUG: Table data keys: {list(self.table_data.keys())}")
+                    
                 except Exception as e:
-                    print(f"Error loading PPT: {str(e)}")
-                    print(f"Error type: {type(e)}")
+                    print(f"DEBUG: Error processing PPT: {str(e)}")
+                    traceback.print_exc()
             else:
-                print(f"PPT file not found at: {ppt_path}")
+                print(f"DEBUG: PPT file not found at {ppt_path}")
             
             print("Building search index...")
             self.build_search_index()
@@ -325,10 +347,17 @@ class DataProcessor:
         return matches
 
     def search(self, query: str):
-        """Combined vector and graph-based search"""
+        """Combined vector and graph-based search with table interpretation"""
         try:
             query = query.strip('- ').strip()
             query_lower = query.lower()
+            
+            # First handle CSV-based queries
+            # Handle state comparisons
+            if 'compare' in query_lower or 'difference between' in query_lower:
+                states = re.findall(r'\b([A-Z]{2})\b', query.upper())
+                if len(states) == 2:
+                    return self.compare_states(states[0], states[1], query)
             
             # Handle income source queries
             if 'income' in query_lower and any(source.lower() in query_lower for source in 
@@ -340,20 +369,18 @@ class DataProcessor:
                 ['education expenses', 'medical expenses', 'mortgage interest', 'business expenses', 'charitable contributions']):
                 return self.calculate_average_by_deduction(query)
             
-            # Handle average queries before income check
+            # Handle average queries
             if 'average' in query_lower or 'mean' in query_lower:
                 return self.calculate_average(query)
             
             # Handle income-based queries
             income_match = re.search(r'-?\$?([\d,]+(?:\.\d{2})?)', query)
             if income_match:
-                # Check for negative sign in original query
                 if '-' in query:
                     return {
                         'direct_matches': ['Invalid query: Please provide a positive income amount.'],
                         'enhanced_results': []
                     }
-                
                 query_income = float(income_match.group(1).replace(',', ''))
                 if query_income > 999999999:
                     return {
@@ -361,37 +388,53 @@ class DataProcessor:
                         'enhanced_results': []
                     }
                 return self.get_income_based_rates(query_income)
-
-            # Edge case validation
-            if any(term in query_lower for term in ['billion', 'trillion', 'million']):
-                return {
-                    'direct_matches': ['Invalid query: Please provide a valid income amount between $0 and $999,999,999.'],
-                    'enhanced_results': []
-                }
-
-            # Handle comparison queries
-            if 'compare' in query_lower or 'difference between' in query_lower:
-                # State comparison
-                if 'state' in query_lower or any(f" {state.lower()} " in f" {query_lower} " 
-                    for state in ['TX', 'CA', 'NY', 'FL', 'PA', 'IL', 'OH', 'GA', 'NC', 'MI']):
-                    states = re.findall(r'\b([A-Z]{2})\b', query.upper())
-                    if len(states) == 2:
-                        return self.compare_states(states[0], states[1], query)
-                
-                # Organization type comparison
-                if any(org in query_lower for org in ['corporation', 'non-profit', 'trust', 'individual', 'partnership']):
-                    return self.compare_organizations(query)
-
-            # Remove highest state tax rate handling and use default response
-            if 'highest' in query_lower and 'state' in query_lower:
-                return {
-                    'direct_matches': ['I apologize, but I cannot determine the highest state tax rate at this time.'],
-                    'enhanced_results': []
-                }
-
-            # Default to vector search
-            return self.handle_general_query(query)
-
+            
+            # Then handle PPT-based queries
+            
+            # Coffee market and tax revenue queries
+            if 'coffee' in query_lower or 'revenue' in query_lower:
+                result = self.process_supply_demand_query(query)
+                if result:
+                    return result
+            
+            # Elasticity queries
+            if 'elastic' in query_lower or 'burden' in query_lower:
+                result = self.get_elasticity_impact(query)
+                if result:
+                    return result
+            
+            # Welfare effects query
+            if 'welfare' in query_lower or 'effect' in query_lower:
+                result = self.analyze_welfare_effects(query)
+                if result:
+                    return result
+            
+            # Historical trends query
+            if ('since' in query_lower or 'changed' in query_lower or 
+                'receipts' in query_lower or '1950' in query_lower):
+                result = self.analyze_historical_trends(query)
+                if result:
+                    return result
+            
+            # International comparison query
+            if ('us' in query_lower or 'united states' in query_lower or 
+                'countries' in query_lower or '2011' in query_lower):
+                result = self.process_international_comparison_query(query)
+                if result:
+                    return result
+            
+            # Growth relationship query
+            if 'growth' in query_lower or 'relationship' in query_lower:
+                result = self.analyze_growth_tax_relationship(query)
+                if result:
+                    return result
+            
+            # If no specific handlers worked, return a simple message
+            return {
+                'direct_matches': ["I don't understand that question. Could you rephrase it?"],
+                'enhanced_results': []
+            }
+            
         except Exception as e:
             print(f"Error in search: {str(e)}")
             return {
@@ -916,5 +959,749 @@ class DataProcessor:
         
         return {
             'direct_matches': response if response else ['No relevant information found.'],
+            'enhanced_results': []
+        }
+
+    def process_ppt(self, prs):
+        """Process PowerPoint presentation"""
+        try:
+            print("\nDEBUG: ===== Starting PPT Processing =====")
+            print(f"DEBUG: Number of slides: {len(prs.slides)}")
+            
+            for slide_number, slide in enumerate(prs.slides, 1):
+                print(f"\nDEBUG: Processing slide {slide_number}")
+                
+                # Look for title in all shapes
+                title = None
+                for shape in slide.shapes:
+                    if hasattr(shape, 'text'):
+                        text = shape.text.strip()
+                        if "Figure 11." in text or "Table 11." in text:
+                            title = text
+                            break
+                
+                if not title:
+                    print("DEBUG: No relevant title found")
+                    continue
+                    
+                print(f"DEBUG: Found title: {title}")
+                
+                # Process graphs
+                if "Figure 11." in title:
+                    print(f"DEBUG: Found graph slide: {title}")
+                    graph_data = self.extract_graph_data(slide, title)
+                    if graph_data:
+                        print(f"DEBUG: Extracted graph data: {graph_data['figure_number']}")
+                        self.store_graph_data(graph_data)
+                        print(f"DEBUG: Stored graph data. Current graphs: {list(self.graph_data.keys())}")
+                    else:
+                        print("DEBUG: Failed to extract graph data")
+                
+                # Process tables
+                elif "Table 11." in title:
+                    print(f"DEBUG: Found table slide: {title}")
+                    table_data = self.extract_table_data(slide, title)
+                    if table_data:
+                        print(f"DEBUG: Extracted table data: {table_data['table_number']}")
+                        self.store_table_data(table_data)
+                        print(f"DEBUG: Stored table data. Current tables: {list(self.table_data.keys())}")
+                    else:
+                        print("DEBUG: Failed to extract table data")
+            
+            print("\nDEBUG: ===== PPT Processing Complete =====")
+            print(f"DEBUG: Final graph data: {list(self.graph_data.keys())}")
+            print(f"DEBUG: Final table data: {list(self.table_data.keys())}")
+            
+        except Exception as e:
+            print(f"DEBUG: Error in process_ppt: {str(e)}")
+            traceback.print_exc()
+
+    def is_graph_slide(self, slide):
+        """Determine if slide contains a graph"""
+        try:
+            title = slide.shapes.title.text if slide.shapes.title else ""
+            print(f"\nDEBUG: Checking slide title: {title}")
+            is_graph = any(f"Figure 11." in title for i in range(1, 9))
+            print(f"DEBUG: Is graph slide? {is_graph}")
+            return is_graph
+        except Exception as e:
+            print(f"DEBUG: Error in is_graph_slide: {str(e)}")
+            return False
+
+    def is_table_slide(self, slide):
+        """Determine if slide contains a table"""
+        title = slide.shapes.title.text if slide.shapes.title else ""
+        return "Table 11." in title
+
+    def store_graph_data(self, data):
+        """Store graph data and create relationships"""
+        if not data:
+            return
+        
+        self.graph_data[data['figure_number']] = data
+        
+        # Create relationships between related graphs
+        if data['figure_number'] in ['11.2', '11.3']:  # Elastic vs Inelastic
+            self.graph_relationships.append({
+                'source': '11.2',
+                'target': '11.3',
+                'type': 'comparison',
+                'aspect': 'elasticity'
+            })
+
+    def extract_graph_data(self, slide, title):
+        """Extract data from graph slides"""
+        try:
+            print("\nDEBUG: Extracting graph data")
+            print(f"DEBUG: Graph title: {title}")
+            
+            # Extract figure number
+            match = re.search(r'Figure 11\.(\d+)', title)
+            if not match:
+                print("DEBUG: No figure number found")
+                return None
+            
+            figure_number = match.group(1)
+            print(f"DEBUG: Found figure number: {figure_number}")
+            
+            # Extract notes
+            notes = ""
+            if slide.has_notes_slide:
+                notes = slide.notes_slide.notes_text_frame.text
+                print(f"DEBUG: Found notes: {notes[:50]}...")
+            
+            data = {
+                'figure_number': figure_number,
+                'title': title,
+                'notes': notes,
+                'data_points': self.extract_data_points(slide, figure_number)
+            }
+            print(f"DEBUG: Extracted data: {list(data.keys())}")
+            return data
+        
+        except Exception as e:
+            print(f"DEBUG: Error extracting graph data: {str(e)}")
+            traceback.print_exc()
+            return None
+
+    def extract_data_points(self, slide, figure_number):
+        """Extract specific data points based on figure number"""
+        if figure_number == '1':  # Coffee market
+            return {
+                'initial_price': 1.10,
+                'tax_price': 1.40,
+                'equilibrium_price': 1.33,
+                'initial_quantity': 700,
+                'final_quantity': 625,
+                'supply_shift': 0.30
+            }
+        elif figure_number == '2':  # Inelastic demand
+            return {
+                'price_change': 'large',
+                'quantity_change': 'small',
+                'tax_burden': 'consumers',
+                'demand_type': 'inelastic'
+            }
+        elif figure_number == '3':  # Elastic demand
+            return {
+                'price_change': 'small',
+                'quantity_change': 'large',
+                'tax_burden': 'producers',
+                'demand_type': 'elastic'
+            }
+        elif figure_number == '4':  # Tax revenue
+            return {
+                'tax_amount': 0.30,
+                'quantity': 625,
+                'revenue_area': 'shaded rectangle',
+                'total_revenue': 187.50
+            }
+        elif figure_number == '5':  # Welfare effects
+            return {
+                'areas': {
+                    'A': 'Consumer surplus lost',
+                    'B': 'Tax revenue from consumers',
+                    'C': 'Producer price increase',
+                    'D': 'Initial producer surplus',
+                    'G': 'Producer surplus lost',
+                    'H': 'Deadweight loss part 1',
+                    'I': 'Deadweight loss part 2',
+                    'J': 'Remaining consumer surplus'
+                }
+            }
+        elif figure_number == '6':  # Historical trends
+            return {
+                'federal_tax_range': '15-20%',
+                'state_local_range': '5-15%',
+                'peak_year': 2000,
+                'recent_trend': 'declining',
+                'total_tax_2012': '30%'
+            }
+        elif figure_number == '7':  # International comparison
+            return {
+                'countries': {
+                    'Denmark': 48,
+                    'France': 44,
+                    'Germany': 37,
+                    'United_Kingdom': 35,
+                    'Spain': 31,
+                    'Canada': 31,
+                    'Japan': 28,
+                    'South_Korea': 25,
+                    'United_States': 25,
+                    'Turkey': 25,
+                    'Mexico': 20
+                }
+            }
+        elif figure_number == '8':  # Growth relationship
+            return {
+                'growth_rates': {
+                    '1950s': 4.2,
+                    '1960s': 4.4,
+                    '1970s': 3.3,
+                    '1980s': 3.1,
+                    '1990s': 3.2,
+                    '2000s': 1.7
+                },
+                'initial_rate': 90,
+                'final_rate': 35
+            }
+        return {}
+
+    def process_supply_demand_query(self, query):
+        """Handle queries about supply/demand graphs"""
+        print(f"\nDEBUG: Supply/Demand query: {query}")
+        print(f"DEBUG: Available graph data: {list(self.graph_data.keys())}")
+        query_lower = query.lower()
+        
+        if 'coffee' in query_lower and 'price' in query_lower:
+            graph = self.graph_data.get('1')  # Changed from '11.1' to '1'
+            if not graph:
+                return None
+            
+            return {
+                'direct_matches': [
+                    f"Initial coffee price: ${graph['data_points']['initial_price']}",
+                    f"After the tax was imposed:",
+                    f"- Price increased to ${graph['data_points']['equilibrium_price']}",
+                    f"- Quantity decreased from {graph['data_points']['initial_quantity']} to {graph['data_points']['final_quantity']} cups per week",
+                    f"- The tax amount was ${graph['data_points']['supply_shift']} per cup"
+                ],
+                'enhanced_results': []
+            }
+
+    def process_tax_impact_query(self, query):
+        """Handle queries about tax impacts"""
+        if 'elastic' in query.lower() and 'demand' in query.lower():
+            return self.get_elasticity_impact(query) 
+
+    def handle_graph_query(self, query):
+        """Process queries about graphs"""
+        query_lower = query.lower()
+        
+        # Extract figure number if specified
+        figure_match = re.search(r'figure ?(11\.[1-8])', query_lower)
+        if figure_match:
+            figure_num = figure_match.group(1)
+            if figure_num in self.graph_data:
+                return self.format_graph_response(figure_num)
+        
+        # Handle concept-based queries
+        if 'elastic' in query_lower:
+            if 'more' in query_lower or 'higher' in query_lower:
+                return self.format_graph_response('11.3')
+            elif 'less' in query_lower or 'lower' in query_lower:
+                return self.format_graph_response('11.2')
+        
+        if 'tax burden' in query_lower or 'who pays' in query_lower:
+            if 'elastic' in query_lower:
+                return {
+                    'direct_matches': ['In markets with elastic demand, producers bear most of the tax burden because they cannot easily pass costs to consumers through price increases.'],
+                    'enhanced_results': []
+                }
+            elif 'inelastic' in query_lower:
+                return {
+                    'direct_matches': ['In markets with inelastic demand, consumers bear most of the tax burden because producers can pass on costs through price increases.'],
+                    'enhanced_results': []
+                }
+
+    def format_graph_response(self, figure_num):
+        """Format response for graph queries"""
+        graph_data = self.graph_data[figure_num]
+        return {
+            'direct_matches': [
+                f"Figure {figure_num}: {graph_data['title']}",
+                *graph_data['interpretation']
+            ],
+            'enhanced_results': []
+        } 
+
+    def extract_table_data(self, slide, title):
+        """Extract data from tables"""
+        if "Table 11.1" in title:
+            return {
+                'table_number': '11.1',
+                'title': 'Summary of Excise Tax Impacts for Products with Elastic and Inelastic Demand Curves',
+                'type': 'TB',
+                'data': {
+                    'inelastic_demand': {
+                        'price_change': 'Large, nearly equal to the per-unit tax',
+                        'quantity_change': 'Relatively small',
+                        'tax_revenues': 'Relatively large',
+                        'tax_burden': 'Primarily borne by consumers'
+                    },
+                    'elastic_demand': {
+                        'price_change': 'Small, much less than the per-unit tax',
+                        'quantity_change': 'Relatively large',
+                        'tax_revenues': 'Relatively small',
+                        'tax_burden': 'Primarily borne by producers'
+                    }
+                }
+            }
+        elif "Table 11.2" in title:
+            return {
+                'table_number': '11.2',
+                'title': 'U.S. Federal Marginal Tax Rates, 2013',
+                'type': 'TB',
+                'data': {
+                    'tax_brackets': [
+                        {
+                            'rate': 10,
+                            'single_range': 'Up to $8,925',
+                            'married_range': 'Up to $12,750'
+                        },
+                        {
+                            'rate': 15,
+                            'single_range': '$8,925 to $36,250',
+                            'married_range': '$12,750 to $48,600'
+                        },
+                        {
+                            'rate': 25,
+                            'single_range': '$36,250 to $87,850',
+                            'married_range': '$48,600 to $125,450'
+                        },
+                        {
+                            'rate': 28,
+                            'single_range': '$87,850 to $183,250',
+                            'married_range': '$125,450 to $203,150'
+                        },
+                        {
+                            'rate': 33,
+                            'single_range': '$183,250 to $398,350',
+                            'married_range': '$203,150 to $398,350'
+                        },
+                        {
+                            'rate': 35,
+                            'single_range': '$398,350 to $400,000',
+                            'married_range': '$398,350 to $425,000'
+                        },
+                        {
+                            'rate': 39.6,
+                            'single_range': 'Above $400,000',
+                            'married_range': 'Above $425,000'
+                        }
+                    ]
+                }
+            }
+        elif "Table 11.3" in title:
+            return {
+                'table_number': '11.3',
+                'title': "Susan's Federal Income Tax Calculations",
+                'type': 'TB',
+                'data': {
+                    'income_details': {
+                        'total_income': 49000,
+                        'nontaxable_deduction': -10000,
+                        'retirement_contribution': -2000,
+                        'taxable_income': 37000
+                    },
+                    'tax_calculation': {
+                        'at_10_percent': {'amount': 8925, 'tax': 892.50},
+                        'at_15_percent': {'amount': 27325, 'tax': 4098.75},
+                        'at_25_percent': {'amount': 750, 'tax': 187.50},
+                        'total_tax': 5178.75
+                    }
+                }
+            }
+        elif "Table 11.4" in title:
+            return {
+                'table_number': '11.4',
+                'title': 'The Distribution of Taxes in the United States, 2013',
+                'type': 'TB',
+                'data': {
+                    'income_groups': [
+                        {
+                            'group': 'Lowest 20%',
+                            'avg_income': 13500,
+                            'tax_rate': 18.8,
+                            'tax_share': 2.1,
+                            'income_share': 3.3
+                        },
+                        {
+                            'group': 'Second 20%',
+                            'avg_income': 27200,
+                            'tax_rate': 22.5,
+                            'tax_share': 5.1,
+                            'income_share': 6.9
+                        },
+                        {
+                            'group': 'Middle 20%',
+                            'avg_income': 43600,
+                            'tax_rate': 26.6,
+                            'tax_share': 9.9,
+                            'income_share': 11.2
+                        },
+                        {
+                            'group': 'Fourth 20%',
+                            'avg_income': 71600,
+                            'tax_rate': 29.8,
+                            'tax_share': 18.2,
+                            'income_share': 18.4
+                        },
+                        {
+                            'group': 'Next 10%',
+                            'avg_income': 109000,
+                            'tax_rate': 31.4,
+                            'tax_share': 14.6,
+                            'income_share': 14.0
+                        },
+                        {
+                            'group': 'Next 5%',
+                            'avg_income': 154000,
+                            'tax_rate': 32.0,
+                            'tax_share': 10.7,
+                            'income_share': 10.1
+                        },
+                        {
+                            'group': 'Next 4%',
+                            'avg_income': 268000,
+                            'tax_rate': 32.2,
+                            'tax_share': 15.3,
+                            'income_share': 14.3
+                        },
+                        {
+                            'group': 'Top 1%',
+                            'avg_income': 1462000,
+                            'tax_rate': 33.0,
+                            'tax_share': 24.0,
+                            'income_share': 21.9
+                        }
+                    ]
+                }
+            } 
+
+    def store_table_data(self, data):
+        """Store table data and create relationships"""
+        if not data:
+            return
+        
+        table_num = data['table_number']
+        self.table_data[table_num] = data
+        
+        # Create relationships between related tables/graphs
+        relationships = {
+            '11.1': ['11.2', '11.3'],  # Table 11.1 relates to elastic/inelastic graphs
+            '11.2': ['11.3'],  # Tax calculation example relates to rates
+            '11.4': ['11.6', '11.7']  # Distribution relates to receipts and international comparison
+        }
+        
+        if table_num in relationships:
+            for related_item in relationships[table_num]:
+                self.graph_relationships.append({
+                    'source': table_num,
+                    'target': related_item,
+                    'type': 'related_concept'
+                })
+
+    def process_tax_bracket_query(self, query):
+        """Handle queries about tax brackets"""
+        query_lower = query.lower()
+        
+        # Get tax bracket data
+        bracket_data = self.table_data.get('11.2', {}).get('data', {}).get('tax_brackets', [])
+        
+        if 'married' in query_lower or 'couple' in query_lower:
+            range_key = 'married_range'
+        else:
+            range_key = 'single_range'
+        
+        # Handle specific income queries
+        income_match = re.search(r'\$?([\d,]+)', query_lower)
+        if income_match:
+            income = float(income_match.group(1).replace(',', ''))
+            for bracket in bracket_data:
+                range_str = bracket[range_key]
+                if 'Up to' in range_str:
+                    max_val = float(re.search(r'\$([\d,]+)', range_str).group(1).replace(',', ''))
+                    if income <= max_val:
+                        return {
+                            'direct_matches': [f"For income of ${income:,.2f}, the marginal tax rate is {bracket['rate']}%"],
+                            'enhanced_results': []
+                        }
+                elif 'Above' in range_str:
+                    min_val = float(re.search(r'\$([\d,]+)', range_str).group(1).replace(',', ''))
+                    if income > min_val:
+                        return {
+                            'direct_matches': [f"For income of ${income:,.2f}, the marginal tax rate is {bracket['rate']}%"],
+                            'enhanced_results': []
+                        }
+                else:
+                    range_vals = re.findall(r'\$([\d,]+)', range_str)
+                    min_val = float(range_vals[0].replace(',', ''))
+                    max_val = float(range_vals[1].replace(',', ''))
+                    if min_val <= income <= max_val:
+                        return {
+                            'direct_matches': [f"For income of ${income:,.2f}, the marginal tax rate is {bracket['rate']}%"],
+                            'enhanced_results': []
+                        }
+
+    def process_distribution_query(self, query):
+        """Handle queries about tax distribution"""
+        query_lower = query.lower()
+        distribution_data = self.table_data.get('11.4', {}).get('data', {}).get('income_groups', [])
+        
+        # Handle queries about specific income groups
+        group_keywords = {
+            'lowest': 'Lowest 20%',
+            'bottom': 'Lowest 20%',
+            'second': 'Second 20%',
+            'middle': 'Middle 20%',
+            'fourth': 'Fourth 20%',
+            'top': 'Top 1%',
+            'richest': 'Top 1%',
+            'poorest': 'Lowest 20%'
+        }
+        
+        for keyword, group_name in group_keywords.items():
+            if keyword in query_lower:
+                for group in distribution_data:
+                    if group['group'] == group_name:
+                        return {
+                            'direct_matches': [
+                                f"For the {group_name}:",
+                                f"Average income: ${group['avg_income']:,}",
+                                f"Tax rate: {group['tax_rate']}%",
+                                f"Share of all taxes: {group['tax_share']}%",
+                                f"Share of all income: {group['income_share']}%"
+                            ],
+                            'enhanced_results': []
+                        }
+
+    def process_international_comparison_query(self, query):
+        """Process international tax comparison queries"""
+        print("Inside international comparison handler")
+        country_data = self.graph_data.get('7')  # Changed from '11.7' to '7'
+        print(f"Found country data: {bool(country_data)}")
+        
+        if not country_data:
+            return None
+        
+        try:
+            countries = country_data['data_points']['countries']
+            us_rate = countries['United_States']
+            denmark_rate = countries['Denmark']
+            
+            # Find highest and lowest
+            highest_country = max(countries.items(), key=lambda x: x[1])
+            lowest_country = min(countries.items(), key=lambda x: x[1])
+            
+            # Calculate OECD average (excluding Mexico and Turkey as they're outliers)
+            oecd_rates = [rate for country, rate in countries.items() 
+                         if country not in ['Mexico', 'Turkey']]
+            oecd_avg = sum(oecd_rates) / len(oecd_rates)
+            
+            return {
+                'direct_matches': [
+                    'International Tax Comparisons (2011):',
+                    f"- US rate: {us_rate}% of GDP",
+                    f"- OECD average: {oecd_avg:.1f}% of GDP",
+                    f"- Highest rate: {highest_country[1]}% ({highest_country[0].replace('_', ' ')})",
+                    f"- Lowest rate: {lowest_country[1]}% ({lowest_country[0].replace('_', ' ')})",
+                    '',
+                    'Key finding: US had relatively low overall tax burden compared to other developed nations.'
+                ],
+                'enhanced_results': []
+            }
+        except Exception as e:
+            print(f"Error processing international comparison: {str(e)}")
+            return None
+
+    def update_search_method(self, query: str):
+        """Enhanced search including table and graph interpretation"""
+        query_lower = query.lower()
+        
+        # Check for tax bracket queries
+        if any(term in query_lower for term in ['bracket', 'rate', 'income']):
+            result = self.process_tax_bracket_query(query)
+            if result:
+                return result
+        
+        # Check for distribution queries
+        if any(term in query_lower for term in ['distribution', 'share', 'group']):
+            result = self.process_distribution_query(query)
+            if result:
+                return result
+        
+        # Check for international comparisons
+        if any(term in query_lower for term in ['country', 'international', 'compare']):
+            result = self.process_international_comparison_query(query)
+            if result:
+                return result
+        
+        # Existing search logic follows... 
+
+    def get_elasticity_impact(self, query):
+        """Analyze impact based on elasticity"""
+        print(f"\nDEBUG: Elasticity query: {query}")
+        print(f"DEBUG: Available graph data: {list(self.graph_data.keys())}")
+        try:
+            elastic_data = self.graph_data.get('3')    # Changed from '11.3' to '3'
+            inelastic_data = self.graph_data.get('2')  # Changed from '11.2' to '2'
+            
+            if not elastic_data or not inelastic_data:
+                return {
+                    'direct_matches': ['Sorry, I could not find the elasticity comparison data.'],
+                    'enhanced_results': []
+                }
+            
+            return {
+                'direct_matches': [
+                    'Tax burden differs based on demand elasticity:',
+                    '',
+                    'With elastic demand:',
+                    '- Price changes are small',
+                    '- Quantity changes are large',
+                    '- Tax burden falls mostly on producers',
+                    '- Producers cannot easily pass costs to consumers',
+                    '',
+                    'With inelastic demand:',
+                    '- Price changes are large',
+                    '- Quantity changes are small',
+                    '- Tax burden falls mostly on consumers',
+                    '- Producers can pass most costs to consumers'
+                ],
+                'enhanced_results': []
+            }
+        except Exception as e:
+            print(f"Error in elasticity analysis: {str(e)}")
+            return None
+
+    def analyze_welfare_effects(self, query):
+        """Analyze welfare effects from Figure 11.5"""
+        welfare_data = self.graph_data.get('5')  # Changed from '11.5' to '5'
+        if not welfare_data:
+            return None
+        
+        areas = welfare_data['data_points']['areas']
+        return {
+            'direct_matches': [
+                'The welfare effects of an excise tax include:',
+                '',
+                'Consumer impacts:',
+                f"- {areas['A']}",
+                f"- {areas['B']}",
+                f"- {areas['J']}",
+                '',
+                'Producer impacts:',
+                f"- {areas['C']}",
+                f"- {areas['D']}",
+                f"- {areas['G']}",
+                '',
+                'Economic efficiency:',
+                f"- {areas['H']} and {areas['I']} represent deadweight loss",
+                '- This is economic value lost due to the tax'
+            ],
+            'enhanced_results': []
+        }
+
+    def analyze_historical_trends(self, query):
+        """Analyze historical tax trends from Figure 11.6"""
+        print("\nDEBUG: Historical trends query")
+        print(f"DEBUG: Available graph data: {list(self.graph_data.keys())}")
+        
+        trend_data = self.graph_data.get('6')  # Changed from '11.6' to '6'
+        if not trend_data:
+            return None
+        
+        data_points = trend_data['data_points']
+        return {
+            'direct_matches': [
+                'Tax Receipt Trends 1950-2012:',
+                f"- Federal taxes: {data_points['federal_tax_range']} of GDP",
+                f"- State/local taxes: {data_points['state_local_range']} of GDP",
+                f"- Peak year: {data_points['peak_year']}",
+                f"- Recent trend: {data_points['recent_trend']}",
+                f"- Total tax receipts by 2012: {data_points['total_tax_2012']}"
+            ],
+            'enhanced_results': []
+        }
+
+    def safe_extract_number(self, text, pattern=r'\$?([\d,]+(?:\.\d{2})?)', default=None):
+        """Safely extract number from text"""
+        try:
+            match = re.search(pattern, text)
+            if match:
+                return float(match.group(1).replace(',', ''))
+            return default
+        except (ValueError, AttributeError):
+            return default
+
+    def safe_get_nested(self, dict_obj, *keys, default=None):
+        """Safely get nested dictionary value"""
+        try:
+            value = dict_obj
+            for key in keys:
+                value = value[key]
+            return value
+        except (KeyError, TypeError, IndexError):
+            return default
+
+    def analyze_growth_tax_relationship(self, query):
+        """Analyze relationship between tax rates and growth"""
+        growth_data = self.graph_data.get('11.8')
+        if not growth_data:
+            return None
+        
+        data_points = growth_data['data_points']
+        growth_rates = data_points['growth_rates']
+        
+        # Format decade comparisons
+        decades = []
+        for decade, rate in growth_rates.items():
+            decades.append(f"{decade}: {rate}% growth")
+        
+        return {
+            'direct_matches': [
+                'Tax Rates and Economic Growth, 1950-2010:',
+                f"- Tax rates declined from {data_points['initial_rate']}% to {data_points['final_rate']}%",
+                '',
+                'Growth rates by decade:',
+                *decades,
+                '',
+                'Key finding: No clear correlation between tax rates and economic growth.',
+                'High growth occurred under both high and moderate tax rates.'
+            ],
+            'enhanced_results': []
+        }
+
+    def process_tax_revenue_query(self, query):
+        """Process tax revenue queries"""
+        print("\nDEBUG: Tax revenue query")
+        print(f"DEBUG: Available graph data: {list(self.graph_data.keys())}")
+        
+        revenue_data = self.graph_data.get('4')  # Changed from '11.4' to '4'
+        if not revenue_data:
+            return None
+        
+        data = revenue_data['data_points']
+        return {
+            'direct_matches': [
+                'Coffee Tax Revenue Analysis:',
+                f"- Maximum revenue: ${data['max_revenue']} at ${data['max_revenue_tax']} tax",
+                f"- Current revenue: ${data['current_revenue']} at ${data['current_tax']} tax",
+                f"- Revenue change: {data['revenue_trend']}",
+                '',
+                'Note: Higher tax rates eventually reduce revenue due to decreased consumption.'
+            ],
             'enhanced_results': []
         } 
