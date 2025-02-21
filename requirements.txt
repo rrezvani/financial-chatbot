@@ -1,0 +1,11 @@
+django
+djangorestframework
+sentence-transformers
+faiss-cpu
+numpy
+pandas
+PyPDF2
+python-pptx
+networkx
+python-dotenv
+django-cors-headers 
