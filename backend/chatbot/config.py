@@ -1,21 +1,21 @@
 import os
+from pathlib import Path
 
-# Base path for data files
-DATA_PATH = "/Users/romtinrezvani/Downloads"
+BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Document paths
+# Document paths that work in both local and Vercel
 TAX_DOCUMENTS = {
-    'tax_code': os.path.join(DATA_PATH, "usc26@118-78.pdf"),
-    'tax_instructions': os.path.join(DATA_PATH, "i1040gi.pdf"),
-    'tax_presentation': os.path.join(DATA_PATH, "MIC_3e_Ch11.pptx"),
-    'tax_data': os.path.join(DATA_PATH, "tax_data.csv")
+    'tax_data': os.path.join(BASE_DIR, 'data', 'tax_rates.csv'),
+    'tax_code': os.path.join(BASE_DIR, 'data', 'tax_code.pdf'),
+    'tax_instructions': os.path.join(BASE_DIR, 'data', 'tax_instructions.pdf'),
+    'tax_presentation': os.path.join(BASE_DIR, 'data', 'tax_presentation.pptx')
 }
 
-# Vector search settings
+# Model settings
 EMBEDDING_MODEL = 'all-MiniLM-L6-v2'
-SIMILARITY_THRESHOLD = 0.5
+MAX_CHUNK_SIZE = 1000
 TOP_K_RESULTS = 3
+SIMILARITY_THRESHOLD = 0.7
 
 # Chunking settings
-MAX_CHUNK_SIZE = 1000  # characters
 CHUNK_OVERLAP = 200    # characters 
