@@ -1,1 +1,1 @@
-web: cd backend && gunicorn core.wsgi 
+web: cd backend && python3 manage.py migrate && python3 manage.py runserver 0.0.0.0:$PORT 

@@ -14,7 +14,7 @@ SECRET_KEY = os.getenv('SECRET_KEY', 'your-default-secret-key')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv('DEBUG', 'False') == 'True'
 
-ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = ['*', '.up.railway.app']
 
 # Application definition
 INSTALLED_APPS = [
@@ -88,7 +88,7 @@ TIME_ZONE = 'UTC'
 USE_I18N = True
 USE_TZ = True
 
-STATIC_URL = 'static/'
+STATIC_URL = '/static/'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
@@ -97,6 +97,9 @@ CORS_ALLOW_ALL_ORIGINS = True  # Only for development
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
+    "https://localhost:3000",
+    "https://*.vercel.app",
+    "https://*.railway.app"
 ]
 
 CORS_ALLOW_CREDENTIALS = True
