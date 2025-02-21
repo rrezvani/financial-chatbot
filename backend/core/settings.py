@@ -31,6 +31,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',  # This needs to be at the top
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -128,4 +129,6 @@ REST_FRAMEWORK = {
 }
 
 # Add Vercel URL to CSRF trusted origins
-CSRF_TRUSTED_ORIGINS = ['https://*.vercel.app'] 
+CSRF_TRUSTED_ORIGINS = ['https://*.vercel.app']
+
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles') 

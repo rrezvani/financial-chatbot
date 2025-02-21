@@ -10,14 +10,6 @@
     {
       "src": "/api/(.*)",
       "dest": "backend/core/wsgi.py"
-    },
-    {
-      "src": "/admin/(.*)",
-      "dest": "backend/core/wsgi.py"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "backend/core/wsgi.py"
     }
   ]
 } 
